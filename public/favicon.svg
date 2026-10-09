@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- 背景（丸） -->
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0b1020"/>
+
+  <!-- バット（左下から右上への斜め） -->
+  <g transform="rotate(-45 32 40)">
+    <!-- バット本体 -->
+    <rect x="20" y="34" width="30" height="8" rx="4" fill="#c8853b"/>
+    <rect x="46" y="33.5" width="9" height="9" rx="4.5" fill="#b06f2a"/>
+    <!-- グリップ -->
+    <rect x="13" y="35.5" width="8" height="5" rx="2.5" fill="#7a4a1c"/>
+  </g>
+
+  <!-- ボール（右上） -->
+  <g>
+    <circle cx="43" cy="21" r="12" fill="#ffffff" stroke="#d0d4de" stroke-width="1"/>
+    <!-- 縫い目 -->
+    <path d="M35 14 Q40 21 35 28" fill="none" stroke="#e2352f" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M51 14 Q46 21 51 28" fill="none" stroke="#e2352f" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M36.5 16 l-1.8 0.6 M36 19 l-2 0.3 M36 23 l-2 -0.3 M36.5 26 l-1.8 -0.6" stroke="#e2352f" stroke-width="1" stroke-linecap="round"/>
+    <path d="M49.5 16 l1.8 0.6 M50 19 l2 0.3 M50 23 l2 -0.3 M49.5 26 l1.8 -0.6" stroke="#e2352f" stroke-width="1" stroke-linecap="round"/>
+  </g>
+</svg>

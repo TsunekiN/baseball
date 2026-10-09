@@ -1,0 +1,3939 @@
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Kaku Gothic ProN',
+    'Yu Gothic', Meiryo, sans-serif;
+  /* 最下段ナビの本体高さ（固定ボタンの bottom と共有して隙間をなくす） */
+  --nav-h: 42px;
+}
+
+/* ===== テーマ定義 ===== */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b1020;
+  --bg-panel: #141a2e;
+  --bg-panel-2: #1b2340;
+  --border: #2a3352;
+  --text: #e6ebff;
+  --text-dim: #9aa4c8;
+  --accent: #4f8cff;
+  --header-grad-from: #0b1020;
+  --header-grad-to: rgba(11, 16, 32, 0.92);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f6fb;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #eef1f8;
+  --border: #d7deee;
+  --text: #1b2340;
+  --text-dim: #647099;
+  --accent: #2f6bff;
+  --header-grad-from: #f4f6fb;
+  --header-grad-to: rgba(244, 246, 251, 0.92);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']):not([data-theme='light']) {
+    color-scheme: light;
+    --bg: #f4f6fb;
+    --bg-panel: #ffffff;
+    --bg-panel-2: #eef1f8;
+    --border: #d7deee;
+    --text: #1b2340;
+    --text-dim: #647099;
+    --accent: #2f6bff;
+    --header-grad-from: #f4f6fb;
+    --header-grad-to: rgba(244, 246, 251, 0.92);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  min-height: 100vh;
+  /* アプリ全体の基本フォントサイズ。個別に必要な箇所だけ上書きする。 */
+  font-size: 11px;
+}
+
+#root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ===== アプリヘッダ（高さを抑える） ===== */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: linear-gradient(180deg, var(--header-grad-from) 0%, var(--header-grad-to) 100%);
+  backdrop-filter: blur(6px);
+  padding: 6px 8px 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.app-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+.app-main {
+  padding: 8px 8px 32px;
+}
+
+/* ダッシュボード表示時は最下段ナビ分の余白を確保 */
+.dashboard {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+/* ===== リーグ見出し ===== */
+.league-section + .league-section {
+  margin-top: 11px;
+}
+
+.league-heading {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 4px 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.league-heading::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ===== チーム一覧カード ===== */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+}
+
+.team-card {
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.12s ease;
+}
+
+.team-card:hover {
+  border-color: var(--accent);
+}
+
+.team-card-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.team-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex: 0 0 auto;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.team-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.team-total {
+  margin-left: auto;
+  text-align: right;
+}
+
+.team-total-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.strength-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.strength-cell {
+  background: var(--bg-panel-2);
+  border-radius: 5px;
+  padding: 3px 1px;
+  text-align: center;
+}
+
+.strength-cell .label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* 戦力内訳のランクバッジ（ABCDE）を最小サイズ(11px)に */
+.strength-cell .rank-badge {
+  font-size: 11px;
+}
+
+/* ===== ランクバッジ ===== */
+.rank-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid;
+  line-height: 1;
+}
+
+.rank-badge.lg {
+  min-width: 26px;
+  height: 22px;
+  font-size: 11px;
+}
+
+/* ===== チーム詳細 ===== */
+.back-btn {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-title {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.roster-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.roster-tab {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 5px;
+  font-size: 11px;
+}
+
+.roster-tab.active {
+  background: var(--bg-panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.roster-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 8px 2px 4px;
+  padding-left: 6px;
+  border-left: 3px solid var(--accent);
+  line-height: 1;
+}
+
+/* 選手行 */
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.player-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 7px;
+}
+
+.pos-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border-radius: 4px;
+  padding: 2px 0;
+  text-align: center;
+}
+
+.player-name {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  line-height: 1.1;
+}
+
+.player-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+.foreign-tag {
+  font-size: 11px;
+  background: #3a2c00;
+  color: #ffd447;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.abilities {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ability {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.ability .ab-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+@media (max-width: 520px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+  .player-row {
+    grid-template-columns: 24px 1fr;
+  }
+  .abilities {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-top: 3px;
+  }
+}
+
+/* ===== スタート画面（2カラム: 左セ・右パ） ===== */
+.start-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.league-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 選択画面用カード（上段: 名前 / 下段: 戦力内訳） */
+.pick-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 6px;
+  color: var(--text);
+}
+
+.pick-card:hover {
+  border-color: var(--accent);
+}
+
+.pick-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pick-card .team-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.pick-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.pick-card .strength-cell {
+  padding: 3px 0;
+}
+
+.pick-card.picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+.start-actions-spacer {
+  height: 58px;
+}
+
+.start-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, transparent 0%, var(--bg) 40%);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.start-footer > * {
+  margin: 0;
+}
+
+.primary-btn {
+  flex: 1;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ghost-btn {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 11px;
+}
+
+/* 選択中カード */
+.team-card.picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+/* ===== マイチーム強調（12球団一覧） ===== */
+.team-card.mine {
+  position: relative;
+  border-color: var(--accent);
+}
+
+.mine-tag {
+  position: absolute;
+  top: -7px;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ===== ヘッダー内 日程バー ===== */
+.header-schedule {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hs-date {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.hs-week {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hs-gameno {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.hs-plan {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hs-plan-label {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.hs-marks {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.hs-mark {
+  font-weight: 800;
+  font-size: 11px;
+  text-shadow: 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.hs-phase {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.hs-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.hs-rank {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ===== 認証 & クラウド保存UI ===== */
+.auth-btn-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.google-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.google-login-btn:hover {
+  background: var(--bg-panel-2);
+  border-color: var(--accent);
+}
+
+.auth-user-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 6px 2px 3px;
+}
+
+.auth-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.auth-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-action-btn {
+  font-size: 10px;
+  padding: 2px 5px;
+  color: var(--text-dim);
+  border-radius: 4px;
+}
+
+.auth-action-btn:hover {
+  color: var(--text);
+}
+
+.auth-loading-text {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.auth-error-msg {
+  font-size: 10px;
+  color: #ef4444;
+}
+
+.cloud-status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-status-badge.synced {
+  color: #10b981;
+}
+
+.cloud-status-badge.syncing {
+  color: #3b82f6;
+}
+
+/* ===== ログイン画面（トップ画面） ===== */
+.login-screen-wrapper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0b0f19;
+  z-index: 1000;
+  padding: 11px;
+  box-sizing: border-box;
+}
+
+/* スマホでもPCでも画像全体（アスペクト比）が収まるコンテナ */
+.login-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+  background: #000;
+}
+
+.login-stage-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.login-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(11, 15, 25, 0.05) 0%,
+    rgba(11, 15, 25, 0.25) 55%,
+    rgba(11, 15, 25, 0.75) 100%
+  );
+  pointer-events: none;
+}
+
+.login-action-box {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: clamp(24px, 12%, 60px);
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 5;
+}
+
+.login-google-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+  min-height: 48px;
+  padding: 10px 20px;
+  background: #ffffff;
+  color: #1f2937;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 26px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s, background-color 0.15s;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.login-google-cta-btn:hover {
+  background: #f8fafc;
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -4px rgba(0, 0, 0, 0.6);
+}
+
+.login-google-cta-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 11px rgba(0, 0, 0, 0.4);
+}
+
+.login-google-cta-btn:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.google-icon-svg {
+  flex-shrink: 0;
+}
+
+.login-error-text {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f87171;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  padding: 5px 11px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+
+
+
+/* ===== メイン画面ヒーロー ===== */
+.team-badge.lg {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.my-team-hero {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 8px;
+  margin-bottom: 20px;
+}
+
+/* ===== オーダー/編成画面: 選手情報ヘッダー（チームヘッダーと差し替え） ===== */
+.player-hero {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 8px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ph-row1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ph-name {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.ph-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ph-stat {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ph-row2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ph-ab {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ph-ab-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ph-ab-val {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.ph-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.ph-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ph-delta-val {
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ph-delta-val.up {
+  color: #2e9e5b;
+}
+
+.ph-delta-val.down {
+  color: #e23b3b;
+}
+
+.ph-delta-val.flat {
+  color: var(--text-dim);
+}
+
+.hero-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-row .hero-name {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.hero-strength {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.hero-strength .strength-cell {
+  min-width: 26px;
+  padding: 2px 3px;
+}
+
+.strength-cell.hl {
+  background: var(--accent);
+}
+
+.strength-cell.hl .label {
+  color: #fff;
+}
+
+.debug-btn {
+  font-size: 11px;
+  opacity: 0.7;
+  padding: 5px 10px;
+}
+
+.hero-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.hero-name {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.hero-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.hero-actions .primary-btn {
+  flex: 2;
+  padding: 8px;
+}
+
+.hero-actions .ghost-btn {
+  flex: 1;
+  padding: 8px;
+}
+
+.primary-btn.full {
+  width: 100%;
+}
+
+/* ===== セグメントタブ ===== */
+.segmented {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.seg {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 7px;
+  padding: 6px;
+  font-size: 11px;
+}
+
+.seg.active {
+  background: var(--bg-panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ===== ホームパネル ===== */
+.home-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.home-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+/* ===== オーダー編成: 共通フォーム部品 ===== */
+select {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 5px;
+}
+
+select:disabled {
+  opacity: 0.6;
+}
+
+.move-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.move-btn {
+  width: 24px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.move-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ミニ能力表示 */
+.mini-abilities {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.mini-ab {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mini-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ===== 打順編集 ===== */
+.lineup-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lineup-row {
+  display: grid;
+  grid-template-columns: 22px auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 7px;
+}
+
+.batting-no {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+}
+
+.pos-select {
+  min-width: 46px;
+}
+
+.lineup-player {
+  min-width: 0;
+}
+
+.player-select {
+  max-width: 100%;
+  font-size: 11px;
+}
+
+/* ===== 投手起用編集 ===== */
+.pitcher-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.role-group {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px 7px;
+}
+
+.role-title {
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  padding-left: 5px;
+  border-left: 3px solid var(--accent);
+}
+
+.role-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.pitcher-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.pitcher-row + .pitcher-row {
+  border-top: 1px solid var(--border);
+}
+
+.rotation-no {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.pitcher-main {
+  min-width: 0;
+}
+
+.role-select {
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .pitcher-row {
+    grid-template-columns: auto 1fr;
+    row-gap: 3px;
+  }
+  .pitcher-row .move-btns {
+    grid-column: 2;
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+  .role-select {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ===== 最下段タブバー ===== */
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  /* ナビ本体の高さを固定し、固定ボタン（.advance-fixed）の bottom と一致させて隙間をなくす */
+  height: var(--nav-h);
+  box-sizing: content-box;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px 5px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+}
+
+.nav-btn.active {
+  color: var(--accent);
+}
+
+.nav-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ===== 開幕メッセージ（1試合目前の試合画面） ===== */
+.season-opening {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+/* ===== 「次の試合へ進む」固定ボタン（最下段ナビのすぐ上） ===== */
+.advance-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* ナビ本体高 + ナビの上ボーダー1px + safe-area ＝ ナビ上端にぴったり密着 */
+  bottom: calc(var(--nav-h) + 1px + env(safe-area-inset-bottom));
+  z-index: 29;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 8px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+
+/* 固定ボタン分の高さをコンテンツ末尾に確保して重なりを防ぐ */
+.advance-spacer {
+  height: 64px;
+}
+
+/* ===== 順位表 ===== */
+.tab-content {
+  margin-top: 0;
+}
+
+.standings {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.standings-head,
+.standings-row {
+  display: grid;
+  grid-template-columns: 22px minmax(48px, 1fr) 34px 34px 34px 34px 52px 44px;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 6px;
+  font-size: 11px;
+}
+
+.standings-head {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.standings-row + .standings-row {
+  border-top: 1px solid var(--border);
+}
+
+.standings-row.mine {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.standings-row .col-rank {
+  font-weight: 800;
+}
+
+.col-rank {
+  text-align: center;
+}
+
+.col-team {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.std-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-num {
+  text-align: center;
+}
+
+.col-rate {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-gb {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-badge.sm {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+/* 順位表: チーム成績モード（打率/OPS/本塁打/盗塁/防御率/失策） */
+/* チーム列はバッジのみに絞り、6指標を均等幅で配置する */
+.standings.stats .standings-head,
+.standings.stats .standings-row {
+  grid-template-columns: 18px 24px repeat(6, 1fr);
+  gap: 3px;
+}
+
+.standings.stats .col-team {
+  justify-content: center;
+}
+
+.col-stat {
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 見出しはやや小さめでも最小サイズ(11px)維持。指標名が長い列も1行に収める */
+.standings.stats .standings-head .col-stat {
+  font-size: 11px;
+  letter-spacing: -0.02em;
+}
+
+/* 切替ボタン（順位表の右下） */
+.standings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.switch-btn {
+  padding: 5px 14px;
+  font-size: 11px;
+}
+
+/* 順位表（両リーグ表示） */
+.standings-block + .standings-block {
+  margin-top: 20px;
+}
+
+/* ===== 設定タブ ===== */
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.setting-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.setting-btn {
+  margin-left: auto;
+}
+
+/* 選手タブ: 自動編成ボタン */
+.auto-btn {
+  margin-bottom: 8px;
+}
+
+/* ===== 選手一覧（表形式） ===== */
+.ptable {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.ptable-head,
+.ptable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px 28px 40px 40px 40px 40px;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.ptable-head {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ptable-row + .ptable-row {
+  border-top: 1px solid var(--border);
+}
+
+.pt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pt-age {
+  text-align: center;
+}
+
+.pt-pos {
+  text-align: center;
+  font-weight: 700;
+}
+
+.pt-stat {
+  text-align: center;
+}
+
+/* 能力セル「90A」: ランク文字だけ色付け（枠・背景なし） */
+.stat-cell {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-rank {
+  font-weight: 800;
+  margin-left: 1px;
+}
+
+/* 選手一覧: ソート可能なヘッダボタン */
+.pt-th {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  width: 100%;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pt-th.sorted {
+  color: var(--accent);
+}
+
+/* ===== 野手編成（2列ドラッグ&ドロップ） ===== */
+.bf-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.bf-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bf-col-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  padding-left: 6px;
+  border-left: 3px solid var(--accent);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.bf-sub {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.bf-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+  cursor: grab;
+  user-select: none;
+}
+
+.bf-row.dragging {
+  opacity: 0.4;
+}
+
+.bf-row.over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.bf-pos {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.bf-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bf-ranks {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.bf-rk {
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 11px;
+  text-align: center;
+}
+
+/* 編成: 自動編成ボタン（右下） */
+.formation-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.auto-btn2 {
+  padding: 6px 16px;
+  font-size: 11px;
+}
+
+/* 編成グループ見出しの補足注記 */
+.bf-note {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-left: 6px;
+}
+
+/* ===== 記録タブ ===== */
+.dummy-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 4px 2px 8px;
+}
+
+.metric-select {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+/* ランキング: セ/パ 2列 */
+.rank-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rank-item {
+  display: grid;
+  grid-template-columns: 18px 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.rank-no {
+  text-align: center;
+  font-weight: 800;
+  color: var(--text-dim);
+}
+
+.rank-mark {
+  text-align: center;
+  font-weight: 800;
+}
+
+.rank-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 6px;
+}
+
+/* 自チーム成績表 */
+.stat-table {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.stat-head,
+.stat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 44px 30px 30px 30px 44px;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.stat-head {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stat-row + .stat-row {
+  border-top: 1px solid var(--border);
+}
+
+.stat-name {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 記録: 指標選択ボタン */
+.metric-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.metric-btn {
+  flex: 1 1 auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.metric-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* 記録: 指標ブロック（全指標を縦に列挙） */
+.metric-block {
+  margin-bottom: 14px;
+}
+
+.metric-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  padding-left: 6px;
+  border-left: 3px solid var(--accent);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.rank-col .league-heading {
+  font-size: 11px;
+  margin: 0 2px 4px;
+}
+
+/* 記録: リーグ名見出し（1回だけ・2列） */
+.rank-league-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 5;
+  padding: 4px 0;
+}
+
+.rank-league-head span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rank-league-head span::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ===== チーム記録 ===== */
+.career-total {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 11px;
+}
+
+.career-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.career-line {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.season-table {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.season-head,
+.season-row {
+  display: grid;
+  grid-template-columns: 48px 40px 1fr 1fr 1fr 1fr 52px;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 8px;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* 打撃・投手モードは9列（年度 打率 OPS 本 盗 得 失 防 策） */
+.season-head.stats,
+.season-row.stats {
+  grid-template-columns: 48px repeat(8, 1fr);
+  gap: 2px;
+  letter-spacing: -0.02em;
+}
+
+.season-head {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.season-row + .season-row {
+  border-top: 1px solid var(--border);
+}
+
+.season-head span:first-child,
+.season-row span:first-child {
+  text-align: left;
+}
+
+/* チーム記録: 年度別ヘッダ＋ページャ */
+.season-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0 6px;
+}
+
+.season-header .roster-group-title {
+  margin: 0;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-btn {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.pager-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pager-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 日本一表記 */
+.season-row .champ {
+  color: #c99700;
+  font-weight: 800;
+}
+
+/* ===== 選手 今年度成績表（ソート可） ===== */
+.stat2 {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stat2-head,
+.stat2-row {
+  display: grid;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.stat2.bat .stat2-head,
+.stat2.bat .stat2-row {
+  grid-template-columns: minmax(0, 1fr) 22px 36px 22px 22px 26px 22px 38px;
+}
+
+.stat2.pit .stat2-head,
+.stat2.pit .stat2-row {
+  grid-template-columns: minmax(0, 1fr) 36px 22px 22px 22px 22px 26px 40px;
+}
+
+.stat2-head {
+  background: var(--bg-panel-2);
+}
+
+.stat2-row + .stat2-row {
+  border-top: 1px solid var(--border);
+}
+
+.stat2-th {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stat2-th.sorted {
+  color: var(--accent);
+}
+
+.stat2-name {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat2-row span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 選手詳細モーダル ===== */
+.clickable {
+  cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 420px;
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px 14px 14px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.modal-name {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.modal-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-close {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.modal-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  padding-left: 6px;
+  border-left: 3px solid var(--accent);
+  margin: 11px 0 6px;
+}
+
+.modal-abilities {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.modal-ab {
+  background: var(--bg-panel-2);
+  border-radius: 6px;
+  padding: 6px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.modal-ab-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.modal-ab-val {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.modal-stat {
+  background: var(--bg-panel-2);
+  border-radius: 6px;
+  padding: 6px 2px;
+  text-align: center;
+}
+
+.modal-stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.modal-stat-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 選手詳細モーダル（高密度版） ===== */
+.modal-panel.dense {
+  padding: 10px 11px 11px;
+}
+
+.md-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.md-name {
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.md-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.md-head .modal-close {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.md-section {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  padding-left: 6px;
+  border-left: 3px solid var(--accent);
+  margin: 10px 0 5px;
+}
+
+/* 横1行（はみ出す場合は横スクロール） */
+.md-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.md-abilities {
+  align-items: stretch;
+}
+
+.md-ab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 30px;
+}
+
+.md-ab-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.md-ab-val {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 今年度の成長値（増減分）。能力値の下に小さく表示 */
+.md-ab-delta {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.md-ab-delta.up {
+  color: #e23b3b;
+}
+.md-ab-delta.down {
+  color: #3b6fe2;
+}
+
+.md-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.md-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 32px;
+}
+
+.md-stat-l {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.md-stat-v {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* モーダル内テーブル */
+.md-table {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.md-th,
+.md-tr {
+  display: grid;
+  gap: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+  text-align: center;
+  align-items: center;
+}
+
+.md-table.bt .md-th,
+.md-table.bt .md-tr,
+.md-table.pt .md-th,
+.md-table.pt .md-tr {
+  grid-template-columns: 48px repeat(7, 1fr);
+}
+
+.md-table.trend .md-th,
+.md-table.trend .md-tr {
+  grid-template-columns: 48px repeat(4, 1fr);
+}
+
+.md-th {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.md-th span:first-child,
+.md-tr span:first-child {
+  text-align: left;
+}
+
+.md-tr span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 能力推移の差分色 */
+.diff-up {
+  color: #2e9e5b;
+}
+.diff-down {
+  color: #e23b3b;
+}
+.md-table.trend .md-tr span {
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* ===== 殿堂入り一覧 ===== */
+.hof-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hof-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+}
+
+.hof-pos {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border-radius: 4px;
+  padding: 2px 0;
+  text-align: center;
+}
+
+.hof-name {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hof-years {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 殿堂入り詳細: タイトル */
+.hof-titles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hof-title {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 7px;
+}
+
+/* ===== 試合タブ ===== */
+.ghost-btn.full {
+  width: 100%;
+}
+
+.opp-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.opp-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.opp-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+/* 試合結果 */
+.match-result {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.mr-score {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+}
+
+.mr-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mr-team-name {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mr-runs {
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.mr-vs {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 24px;
+  text-align: center;
+}
+
+.mr-result-text {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 4px;
+}
+
+.mr-board-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.mr-board {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mr-board th,
+.mr-board td {
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  text-align: center;
+  min-width: 20px;
+}
+
+.mr-board th {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.mr-board-team {
+  font-weight: 800;
+}
+
+.mr-rh {
+  font-weight: 800;
+  background: var(--bg-panel-2);
+}
+
+/* 得点ログ */
+.mr-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mr-log-row {
+  display: grid;
+  grid-template-columns: 50px 16px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mr-log-mark {
+  text-align: center;
+  font-weight: 800;
+}
+
+.mr-change {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 700;
+  padding: 3px 6px 1px;
+}
+
+.mr-log-inning {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.mr-log-runs {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.mr-log-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px;
+}
+
+/* 全打席詳細 */
+.mr-detail {
+  margin-top: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mr-detail-row {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+.mr-detail-row + .mr-detail-row {
+  border-top: 1px solid var(--border);
+}
+
+/* 設定: 進行単位ボタン */
+.unit-btns {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.unit-btn {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.unit-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* 次の試合カード */
+.ng-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.ng-name {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ng-vs {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 直近試合リスト */
+.recent-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.recent-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.recent-wl {
+  text-align: center;
+  font-weight: 800;
+}
+
+.recent-wl.win {
+  color: #2e9e5b;
+}
+
+.recent-wl.lose {
+  color: #e23b3b;
+}
+
+.recent-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 試合結果: 勝敗投手・本塁打（左） ＋ 直近6試合（右上） */
+/* 直近6試合は絶対配置でフローから外し、ラッパーの高さは左カラムだけで決める。
+   こうすると本塁打の直後にすぐ試合レポートが続き、余計な余白が出ない。 */
+.mr-decisions-wrap {
+  position: relative;
+  margin-top: 10px;
+}
+
+.mr-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* 右上の直近6試合と重ならないよう右側に余白を確保 */
+  padding-right: 128px;
+}
+
+.mr-dec-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+
+.mr-dec-tag {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  padding: 0 4px;
+  flex: 0 0 auto;
+}
+
+/* 本塁打の行はタグと選手名の間で折り返さない（リスト内でのみ折り返す） */
+.mr-dec-row.hr-row {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.mr-dec-tag.win {
+  background: #e23b3b;
+}
+.mr-dec-tag.lose {
+  background: #8a8f99;
+}
+.mr-dec-tag.sv {
+  background: var(--accent);
+  margin-left: 16px;
+}
+.mr-dec-tag.hr {
+  background: #2e9e5b;
+}
+
+.mr-dec-name {
+  font-weight: 700;
+}
+
+.mr-dec-rec {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.mr-hr-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mr-hr-item {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 優勝マジック（赤とピンクの中間色） */
+.col-gb.magic {
+  color: #e7507b;
+  font-weight: 800;
+}
+
+/* ===== ポストシーズン ===== */
+.champ-banner {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 11px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+/* CS結果: セ・リーグ／パ・リーグの2列レイアウト */
+.series-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.series-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 2列内のカードは幅が狭いので余白と文字を少し詰める */
+.series-columns .series-card {
+  padding: 7px 8px;
+}
+
+.series-columns .series-body {
+  gap: 6px;
+}
+
+.series-columns .series-team {
+  font-size: 11px;
+}
+
+.series-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.series-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.series-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.series-body {
+  /* バッジ・チーム名・スコア を中央寄せで横並び。幅にゆとりがあるので gap を広めに */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.series-team {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.series-score {
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.series-winner {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* 試合レポート */
+.mr-report {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mr-rep-line {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* 直近6試合（スコアボード直下・勝敗投手列の右上に絶対配置） */
+.mr-recent {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border, #d9dde3);
+}
+
+.mr-recent-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.mr-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.mr-recent-mark {
+  font-weight: 800;
+  width: 1em;
+  text-align: center;
+}
+
+.mr-recent-mark.win {
+  color: #e23b3b;
+}
+
+.mr-recent-mark.lose {
+  color: #8a8f99;
+}
+
+.mr-recent-mark.draw {
+  color: #2e9e5b;
+}
+
+.mr-recent-score {
+  font-variant-numeric: tabular-nums;
+}
+
+.mr-rep-line.ach {
+  font-weight: 800;
+  color: #e7a400;
+}
+
+.mr-rep-line.inj {
+  font-weight: 700;
+  color: #e23b3b;
+}
+
+.mr-rep-line.ret {
+  font-weight: 700;
+  color: #e23b3b;
+}
+
+/* 故障者リスト（編成画面） */
+.bf-sub.il {
+  color: #e23b3b;
+  font-weight: 700;
+}
+.bf-row.il {
+  opacity: 0.9;
+}
+.bf-il-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: #e23b3b;
+  font-weight: 700;
+}
+
+/* オフシーズン: 殿堂入り確認 */
+.off-hof-candidate {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border, #444);
+}
+.off-hof-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.primary-btn.sm,
+.ghost-btn.sm {
+  padding: 3px 11px;
+  font-size: 11px;
+  width: auto;
+}
+
+/* ============================================================
+   ドラフト会議 UI スタイル
+============================================================ */
+.draft-container {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.draft-header-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.draft-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.draft-badge.round {
+  background: var(--accent);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.draft-status-text {
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.draft-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.draft-banner {
+  background: rgba(79, 140, 255, 0.15);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  padding: 8px 11px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* フィルタ & ソートバー */
+.draft-filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  transition: all 0.15s;
+}
+
+.filter-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.sort-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sort-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.draft-select {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+/* 候補選手テーブル */
+.draft-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.draft-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.draft-table th {
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  padding: 5px 2px;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.draft-table th.center,
+.draft-table td.center {
+  text-align: center;
+}
+
+.draft-table td {
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+/* 指名ボタン（極小・余白最小） */
+.draft-pick-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 5px;
+  min-width: 0;
+}
+
+/* 指名済み行のグレーアウト（ライト/ダーク共通で視認性の良いトーンダウン） */
+.draft-table tr.row-picked {
+  opacity: 0.55;
+  background: rgba(140, 150, 175, 0.12) !important;
+}
+
+.draft-team-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 指名列: 獲得球団名 */
+.draft-pick-team {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.draft-free-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: rgba(79, 140, 255, 0.15);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.prospect-name {
+  font-weight: 600;
+  color: var(--text);
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.my-pick-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: #ff9f43;
+  color: #fff;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.ability-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.ab-chip-val {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ab-chip-rank {
+  font-weight: 800;
+}
+
+/* 指名不可の行（指名済み or これ以上指名できない）をグレーアウト */
+.draft-table tr.row-disabled {
+  opacity: 0.5;
+  background: rgba(140, 150, 175, 0.1);
+}
+
+/* 能力セル（1列表示用コンパクト: 数値＋ランク） */
+.draft-ab-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.draft-ab-num {
+  font-weight: 600;
+  color: var(--text);
+}
+.draft-ab-rank {
+  font-weight: 800;
+}
+
+/* 調査ボタン（虫眼鏡アイコンのみ） */
+.scout-icon-btn {
+  padding: 2px 6px;
+  font-size: 12px;
+  border-color: #4a90e2;
+  color: #4a90e2;
+  line-height: 1;
+}
+
+.disabled-text {
+  color: var(--text-dim);
+}
+
+/* ===== 1巡目 競合くじ引きモーダル ===== */
+.lottery-modal {
+  max-width: 480px;
+  width: 90%;
+  padding: 20px;
+  text-align: center;
+}
+
+.lottery-header h3 {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #ff9f43;
+}
+
+.lottery-sub {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.competing-teams {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.team-tag {
+  padding: 3px 10px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lottery-instruction {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.lottery-cards {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.lottery-card {
+  width: 100px;
+  height: 140px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.lottery-card:not(.revealed):hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.lottery-card .card-back {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1e294b 0%, #2e3b66 100%);
+  border: 2px dashed #4f8cff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  gap: 8px;
+}
+
+.lottery-card .card-number {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.lottery-card .card-tap-hint {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: rgba(79, 140, 255, 0.4);
+  border-radius: 4px;
+}
+
+/* カード開封時 */
+.lottery-card.revealed .card-front {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  animation: flipCard 0.35s ease-out;
+  box-shadow: 0 4px 11px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes flipCard {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
+.lottery-card.revealed.win .card-front {
+  background: linear-gradient(135deg, #fff3c4 0%, #ffd447 100%);
+  border: 2px solid #e7a400;
+  color: #5c3b00;
+}
+
+.lottery-card.revealed.win .card-win-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.lottery-card.revealed.win .kuji-mark {
+  font-size: 24px;
+}
+
+.lottery-card.revealed.lose .card-front {
+  background: var(--bg-panel-2);
+  border: 2px solid var(--border);
+  color: var(--text-dim);
+}
+
+.lottery-card.revealed.lose .card-lose-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.selected-tag {
+  font-size: 11px;
+  background: #000;
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-top: 6px;
+}
+
+.lottery-outcome-box {
+  margin-top: 10px;
+}
+
+.outcome-text {
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.outcome-text.win {
+  background: rgba(255, 212, 71, 0.2);
+  border: 1px solid #ffd447;
+  color: #ffd447;
+}
+
+.outcome-text.lose {
+  background: rgba(226, 59, 59, 0.15);
+  border: 1px solid #e23b3b;
+  color: #e23b3b;
+}
+
+/* ===== 自チーム戦力参照モーダル ===== */
+.draft-roster-modal {
+  max-width: 620px;
+  width: 95%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.roster-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.modal-roster-table-wrapper {
+  overflow-y: auto;
+  max-height: 55vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.roster-level-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.roster-level-badge.FIRST {
+  background: rgba(46, 139, 87, 0.2);
+  color: #4ade80;
+  border: 1px solid #22c55e;
+}
+
+.roster-level-badge.FARM {
+  background: rgba(140, 150, 175, 0.2);
+  color: var(--text-dim);
+}
+
+/* ===== スカウト調査バッジ & チップ ===== */
+.draft-scout-badge {
+  font-size: 11px;
+  background: rgba(74, 144, 226, 0.15);
+  border: 1px solid rgba(74, 144, 226, 0.4);
+  color: #4a90e2;
+  padding: 3px 7px;
+  border-radius: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scout-revealed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 3px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.scout-chip-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.scout-chip-val {
+  font-weight: 800;
+}
+
+.scout-chip-sep {
+  color: var(--text-dim);
+  opacity: 0.5;
+  font-size: 11px;
+}
+
+
+/* 外国人スカウト画面 */
+.scout-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.scout-usage {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.scout-sub {
+  font-size: 11px;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  color: var(--text-dim);
+}
+.scout-pos-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.scout-pos-btn {
+  padding: 6px 11px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.scout-pos-btn.active {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0d6efd;
+}
+.scout-pos-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.scout-prospect {
+  padding: 8px;
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+.scout-prospect-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.scout-prospect-name {
+  font-weight: 800;
+  font-size: 12px;
+}
+.scout-prospect-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.scout-prospect-abilities {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scout-ab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 11px;
+}
+.scout-ab-label {
+  color: var(--text-dim);
+}
+.scout-ab-val {
+  font-weight: 700;
+  font-size: 12px;
+}
+.scout-sign-btn {
+  margin-left: auto;
+}
+
+/* 故障者リスト通知バッジ（選手ボタン） */
+.nav-icon {
+  position: relative;
+}
+.nav-badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e23b3b;
+  border: 1px solid #fff;
+}
+
+/* 負傷/復帰 通知バナー */
+.injury-banner {
+  position: relative;
+  background: #fdecec;
+  border: 1px solid #e23b3b;
+  border-radius: 8px;
+  padding: 8px 28px 8px 10px;
+  margin-bottom: 10px;
+}
+.injury-banner-line {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c62828;
+  line-height: 1.5;
+}
+.injury-banner-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: #c62828;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* お知らせ通知バナー（緑枠） */
+.notice-banner {
+  position: relative;
+  background: #e7f6ec;
+  border: 1px solid #2e9e5b;
+  border-radius: 8px;
+  padding: 8px 28px 8px 10px;
+  margin-bottom: 10px;
+}
+.notice-banner-line {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1e7a43;
+  line-height: 1.5;
+}
+.notice-banner-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: #1e7a43;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* 個人詳細モーダル: プロフィール/詳細成績 */
+.md-profile {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  font-size: 11px;
+  margin-top: 6px;
+}
+.md-pf-label {
+  color: var(--text-dim);
+  margin-right: 6px;
+}
+.md-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+.md-stat-cell {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 6px;
+  background: var(--bg-panel-2);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text);
+}
+.md-stat-label {
+  color: var(--text-dim);
+}
+.md-stat-val {
+  font-weight: 700;
+}
+.md-empty {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 16px 0;
+}
+
+/* 編成画面: 名前タップで個人詳細 */
+.bf-name.clickable {
+  cursor: pointer;
+}
+
+/* ============================================================
+   オフシーズン: タイトル受賞一覧（お祝い演出）／引退発表
+   フォント大きめ
+============================================================ */
+.offseason-summary {
+  display: flex;
+  flex-direction: column;
+  margin-top: -4px; /* 画面上部の余白を少し詰める */
+}
+
+/* タイトル受賞ヒーロー */
+.award-hero {
+  text-align: center;
+  padding: 7px 8px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3a2c00 0%, #6b5100 50%, #3a2c00 100%);
+  border: 2px solid #f5c518;
+  box-shadow: 0 0 14px rgba(245, 197, 24, 0.35);
+  margin-bottom: 9px;
+}
+.award-hero-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd447;
+  margin: 2px 0 0;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+.award-empty,
+.retire-empty {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 14px 0;
+}
+
+/* 三冠王・沢村賞（別枠） */
+.award-special {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.award-special-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #3a2c00, #6b5100);
+  border: 2px solid #f5c518;
+}
+.award-special-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd447;
+}
+.award-special-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+}
+.award-special-team {
+  font-size: 11px;
+  color: #ffe08a;
+}
+
+/* タイトル表（タイトル名 行 × セ/パ 列） */
+.award-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.award-table-head,
+.award-row {
+  display: grid;
+  grid-template-columns: 8.5em minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+}
+.award-table-head {
+  background: var(--bg-panel-2);
+}
+.award-th-title {
+  padding: 4px 7px;
+}
+.award-th-league {
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+.award-th-league.ce {
+  color: #e23b3b;
+}
+.award-th-league.pa {
+  color: #2e9e5b;
+}
+.award-row + .award-row {
+  border-top: 1px solid var(--border);
+}
+.award-row-title {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--bg-panel-2);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.award-row-cell {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 7px;
+  min-width: 0;
+}
+.award-cell-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+}
+.award-cell-value {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.award-cell-team {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.award-cell-dash {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 引退発表 */
+.retire-hero {
+  text-align: center;
+  padding: 14px 10px 11px;
+  border-radius: 11px;
+  background: var(--bg-panel-2);
+  border: 2px solid var(--border);
+  margin-bottom: 14px;
+}
+.retire-hero-sub {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+.retire-hero-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 4px 0 0;
+}
+.retire-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.retire-card {
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+.retire-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.retire-card-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+.retire-card-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.retire-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 11px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.retire-stat b {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* 殿堂入り確認（引退発表画面内） */
+.hof-confirm-block {
+  border: 2px solid #f5c518;
+  border-radius: 10px;
+  padding: 10px 11px;
+  margin-bottom: 14px;
+  background: var(--bg-panel);
+}
+.hof-confirm-head {
+  font-size: 12px;
+  font-weight: 800;
+  color: #e7a400;
+  margin-bottom: 6px;
+}
+.hof-confirm-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.hof-confirm-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hof-confirm-span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.hof-confirm-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* ===== 確認ダイアログ（ブラウザ標準 confirm の代替） ===== */
+.confirm-modal {
+  max-width: 360px;
+  padding: 16px 18px 14px;
+}
+
+.confirm-title {
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.confirm-body {
+  margin-bottom: 14px;
+}
+
+.confirm-line {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-actions .primary-btn,
+.confirm-actions .ghost-btn {
+  min-width: 96px;
+}
+
+/* ===== 新外国人スカウト: 候補の表形式 ===== */
+.scout-table-wrap {
+  margin-top: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scout-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.scout-table th {
+  padding: 6px 3px;
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.scout-table td {
+  padding: 6px 3px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.scout-table tr:last-child td {
+  border-bottom: none;
+}
+
+.scout-table th.left,
+.scout-table td.left {
+  text-align: left;
+  padding-left: 8px;
+}
+
+.scout-table th.right,
+.scout-table td.right {
+  text-align: right;
+  padding-right: 6px;
+}
+
+.scout-td-name {
+  font-weight: 700;
+}
+
+.scout-td-ab {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 極小ボタン（獲得など） */
+.primary-btn.xs {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  min-width: 0;
+}
