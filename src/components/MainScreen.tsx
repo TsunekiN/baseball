@@ -55,6 +55,8 @@ interface Props {
   authLoading: boolean;
   cloudSaving: boolean;
   onToggleTheme: () => void;
+  /** 現在のデータを手動保存する */
+  onSave?: () => Promise<void> | void;
   /** 全データを削除して初期化する */
   onReset: () => void;
   onUpdateOrder: (teamId: string, order: TeamOrder) => void;
@@ -121,6 +123,7 @@ export function MainScreen({
   authLoading,
   cloudSaving,
   onToggleTheme,
+  onSave,
   onReset,
   onUpdateOrder,
   onAdvance,
@@ -150,6 +153,20 @@ export function MainScreen({
   // オーダー/編成画面で選手タップ時にヘッダーへ表示する選手（playersタブ時のみ有効）
   const [heroPlayer, setHeroPlayer] = useState<Player | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState(false);
+
+  const handleManualSave = async () => {
+    if (manualSaving || !onSave) return;
+    setManualSaving(true);
+    try {
+      await onSave();
+      setSaveNotice(true);
+      setTimeout(() => setSaveNotice(false), 2500);
+    } finally {
+      setManualSaving(false);
+    }
+  };
 
   const myOrder = orders[myTeam.id] ?? buildBestOrder(myTeam);
   // ヘッダー差し替えは players タブ表示中のみ。選手は最新の teams から引き直す（能力は変動するため）
@@ -296,6 +313,22 @@ export function MainScreen({
                 </span>
               </div>
             )}
+            <div className="setting-row">
+              <span className="setting-label">データ保存</span>
+              <button
+                className="ghost-btn setting-btn"
+                onClick={handleManualSave}
+                disabled={manualSaving}
+                style={
+                  saveNotice
+                    ? { color: '#2ed573', borderColor: '#2ed573', fontWeight: 600 }
+                    : undefined
+                }
+                title="現在のゲーム状態を手動で保存します"
+              >
+                {manualSaving ? '🔄 保存中...' : saveNotice ? '✅ 保存完了！' : '💾 現在のデータを保存'}
+              </button>
+            </div>
             <div className="setting-row">
               <span className="setting-label">テーマ</span>
               <button className="ghost-btn setting-btn" onClick={onToggleTheme}>

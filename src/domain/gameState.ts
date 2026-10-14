@@ -10,7 +10,7 @@ import type { TitleCounts, HallOfFamer } from './stats';
 import type { OffseasonReport } from './offseason';
 
 const STORAGE_KEY = 'pennant-game-state';
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 /** チームの勝敗記録 */
 export interface TeamRecord {
@@ -82,7 +82,10 @@ export interface DraftState {
     winningIndex: number; // 0..competitorTeamIds.length
     revealedIndex?: number; // ユーザーがタップしたカード
     won?: boolean;
+    cpuBids?: Record<string, string>; // その入札回のCPU指名マップ (teamId -> prospectId)
   } | null;
+  /** 1巡目進行中の未確定CPU入札マップ (teamId -> prospectId) */
+  round1CpuBids?: Record<string, string>;
   /** マイチームが「指名終了」を押したか */
   myTeamFinished?: boolean;
   /** ドラフト終了フラグ */
@@ -202,6 +205,8 @@ export interface GameState {
   recentGames: RecentGame[];
   /** 先発投手が最後に先発した日（playerId -> day）。中5日の登板間隔管理用（全球団） */
   starterLastDay: Record<string, number>;
+  /** リリーフ投手の直近連続登板数（playerId -> 連続試合数）。3連投で次回休養（全球団） */
+  relieverConsecutive: Record<string, number>;
   /**
    * ポストシーズン用ローテーション管理（teamId -> 次に先発するローテ番号 0始まり）。
    * シリーズをまたいでも先発が重複しないよう、試合ごとにインクリメントする。
@@ -274,6 +279,7 @@ export function createNewGameState(): GameState {
     injuries: {},
     recentGames: [],
     starterLastDay: {},
+    relieverConsecutive: {},
     postRotationIdx: {},
     seasonStartAbilities: snapshotAbilities(teams),
   };
@@ -364,6 +370,7 @@ export function startNextSeason(prev: GameState, teamsIn: Team[]): GameState {
     injuries: {}, // オフシーズンで全快
     recentGames: [], // 翌シーズンはリセット
     starterLastDay: {}, // ローテ状態も翌シーズンでリセット
+    relieverConsecutive: {}, // 連投状態もリセット
     postRotationIdx: {}, // ポストシーズンローテも翌シーズンでリセット
     seasonStartAbilities: snapshotAbilities(teams), // 開幕時能力を記録（今季増減の基準）
     // 履歴・タイトル・殿堂はそのまま引き継ぎ（呼び出し側で更新済み）

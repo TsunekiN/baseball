@@ -11,7 +11,13 @@ import { awardTitles } from './titleAward';
 import { emptyTitleCounts, TITLE_DEFS, type TitleCounts } from './stats';
 import { buildStandings } from './standings';
 import { applyAgingAdjustment } from './growthEngine';
-import { generateDraftProspects, determineFirstRoundCompetitors, createLotteryDraw, pickForCpu } from './draft';
+import {
+  generateDraftProspects,
+  generateRound1CpuBids,
+  resolveCpuCompetitions,
+  createLotteryDraw,
+  pickForCpu,
+} from './draft';
 import { generateForeignProspects } from './foreignScout';
 import type { DraftState, ForeignScoutState } from './gameState';
 import type { Position } from './types';
@@ -555,25 +561,20 @@ export function startDraft(state: GameState): GameState {
     waiverOrder = state.teams.map((t) => t.id);
   }
 
-  // 1巡目: CPU全球団の指名を事前処理（入札式のため、マイチームの指名前に各CPUが自球団の1位をのり指定している設定）
-  const round1Picked: Record<string, string> = {};
+  // 1巡目: CPU全球団（マイチーム以外）が同時に1巡目を決定する（最大2球団重複）
   const cpuTeams = state.teams.filter((t) => t.id !== state.myTeamId);
-  for (const cpuTeam of cpuTeams) {
-    const available = pool.filter((p) => !round1Picked[p.id]);
-    const pick = pickForCpu(cpuTeam, available);
-    if (pick) round1Picked[pick.id] = cpuTeam.id;
-  }
-  // マイチームの1巡目指名前に2巡目先行指名分は含めない（startDraftでは1巡目のみ）
+  const round1CpuBids = generateRound1CpuBids(cpuTeams, pool);
 
   const draft: DraftState = {
     pool,
-    picked: round1Picked,
+    picked: {}, // 1巡目は入札・抽選を経て決定するため初期は空
     myPicks: [],
     round: 1,
     waiverOrder,
     scouted: {},
     scoutsLeft: 10,
     pendingLottery: null,
+    round1CpuBids,
     done: false,
   };
 
@@ -621,11 +622,78 @@ export function finalizeOffseason(state: GameState): GameState {
 }
 
 /**
+ * マイチーム確定後に、まだ1巡目が確定していないCPU球団たちだけで
+ * 外れ1巡目を全員確定するまで自動で消化する。
+ */
+function resolveRemainingCpuRound1(
+  teams: Team[],
+  pool: Player[],
+  initialPicked: Record<string, string>,
+  unresolvedTeamIds: string[],
+): Record<string, string> {
+  const nextPicked = { ...initialPicked };
+  let currentUnresolved = [...unresolvedTeamIds];
+  const teamMap = new Map(teams.map((t) => [t.id, t]));
+
+  while (currentUnresolved.length > 0) {
+    const unresTeams = currentUnresolved.map((id) => teamMap.get(id)!).filter(Boolean);
+    const available = pool.filter((p) => !nextPicked[p.id]);
+    const bids = generateRound1CpuBids(unresTeams, available);
+    const { winners, losers } = resolveCpuCompetitions(bids);
+    for (const [pid, tid] of Object.entries(winners)) {
+      nextPicked[pid] = tid;
+    }
+    currentUnresolved = losers;
+  }
+  return nextPicked;
+}
+
+/**
+ * 1巡目指名が全球団確定した後に、第2巡目へ進める。
+ * 2巡目のマイチームより前のCPUを先行指名し、マイチームの指名待ち状態にする。
+ */
+function advanceToRound2(state: GameState, picked: Record<string, string>, myPicks: string[]): GameState {
+  const draft = state.draft!;
+  const myTeamId = state.myTeamId!;
+  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
+  const nextPicked = { ...picked };
+
+  const cpuPick = (teamId: string) => {
+    if (teamId === myTeamId) return;
+    const team = teamMap.get(teamId);
+    if (!team) return;
+    const available = draft.pool.filter((p) => !nextPicked[p.id]);
+    const pick = pickForCpu(team, available);
+    if (pick) nextPicked[pick.id] = team.id;
+  };
+
+  // 2巡目ウェーバー順でマイより前のCPUを先行指名
+  const order2 = draftOrderForRound(draft.waiverOrder, 2);
+  const myIdx2 = order2.indexOf(myTeamId);
+  for (const teamId of order2.slice(0, myIdx2)) {
+    cpuPick(teamId);
+  }
+
+  return {
+    ...state,
+    draft: {
+      ...draft,
+      picked: nextPicked,
+      myPicks,
+      round: 2,
+      pendingLottery: null,
+      round1CpuBids: undefined,
+      done: false,
+    },
+  };
+}
+
+/**
  * ユーザーが選手を指名したときの処理。
  * - 1巡目:
- *   競合CPU判定（最大2球団、合計最大3チーム）。
+ *   他球団の事前入札と競合しているか判定。
  *   競合があれば pendingLottery をセットしてくじ引き待ちにする。
- *   競合がなければ即時交渉権獲得し、他球団の1巡目をシミュレート。
+ *   競合がなければ即時交渉権獲得し、他球団の競合解決・残りの外れ1巡目を自動完結して2巡目へ。
  * - 2巡目以降:
  *   ウェーバー順でマイチームが指名し、その後他球団の当巡指名をシミュレート。
  */
@@ -637,13 +705,15 @@ export function makeDraftPick(state: GameState, prospectId: string): GameState {
   const prospect = draft.pool.find((p) => p.id === prospectId);
   if (!prospect || draft.picked[prospectId]) return state;
 
-  const otherTeams = state.teams.filter((t) => t.id !== myTeamId);
-
-  // --- 1巡目 ---
+  // --- 1巡目（および外れ1巡目） ---
   if (draft.round === 1 && !draft.myPicks.includes(prospectId)) {
-    const competitors = determineFirstRoundCompetitors(prospect, otherTeams);
+    const cpuBids = { ...(draft.round1CpuBids ?? {}) };
+    const competitors = Object.entries(cpuBids)
+      .filter(([_, pid]) => pid === prospectId)
+      .map(([tid]) => tid);
+
     if (competitors.length > 0) {
-      // 競合発生！くじ引き演出待ち
+      // 競合発生！くじ引き演出へ
       const { winningIndex } = createLotteryDraw(competitors);
       return {
         ...state,
@@ -653,16 +723,31 @@ export function makeDraftPick(state: GameState, prospectId: string): GameState {
             prospectId,
             competitorTeamIds: competitors,
             winningIndex,
+            cpuBids,
           },
         },
       };
     } else {
       // 単独指名成功！
-      return finalizePickAndAdvanceRound(state, prospectId, myTeamId);
+      const nextPicked: Record<string, string> = { ...draft.picked, [prospectId]: myTeamId };
+      const nextMyPicks = [...draft.myPicks, prospectId];
+
+      // マイ以外のCPU指名の競合を解決
+      const otherCpuBids = Object.fromEntries(
+        Object.entries(cpuBids).filter(([_, pid]) => pid !== prospectId),
+      );
+      const { winners, losers } = resolveCpuCompetitions(otherCpuBids);
+      for (const [pid, tid] of Object.entries(winners)) {
+        nextPicked[pid] = tid;
+      }
+
+      // 未確定CPU球団たちを外れ1巡目で自動完結
+      const fullyPicked = resolveRemainingCpuRound1(state.teams, draft.pool, nextPicked, losers);
+      return advanceToRound2(state, fullyPicked, nextMyPicks);
     }
   }
 
-  // --- 2巡目以降（または外れ1巡目等） ---
+  // --- 2巡目以降 ---
   return finalizePickAndAdvanceRound(state, prospectId, myTeamId);
 }
 
@@ -693,28 +778,57 @@ export function resolveLotteryDraw(state: GameState, selectedIndex: number): Gam
 
 /**
  * くじ引き結果確認後の確定処理。
- * 当選なら獲得確定し次巡へ。外れなら外れ1巡目として再指名待ちへ。
+ * - 当選なら獲得確定し、他球団の外れ1巡目を自動完結して第2巡目へ進む。
+ * - 外れなら競合CPUが獲得し、外れた球団（マイチーム含む）で改めて外れ1巡目の指名待ちへ。
  */
 export function confirmLotteryOutcome(state: GameState): GameState {
   const draft = state.draft;
   const myTeamId = state.myTeamId;
   if (!draft || !myTeamId || !draft.pendingLottery) return state;
 
-  const { prospectId, competitorTeamIds, won } = draft.pendingLottery;
+  const { prospectId, competitorTeamIds, won, cpuBids = {} } = draft.pendingLottery;
+  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
+
+  // マイ指名選手以外のCPU同士の競合を解決
+  const otherCpuBids = Object.fromEntries(
+    Object.entries(cpuBids).filter(([_, pid]) => pid !== prospectId),
+  );
+  const { winners, losers } = resolveCpuCompetitions(otherCpuBids);
+  const nextPicked: Record<string, string> = { ...draft.picked };
+  for (const [pid, tid] of Object.entries(winners)) {
+    nextPicked[pid] = tid;
+  }
+  let allUnresolvedCpu = [...losers];
 
   if (won) {
-    // 交渉権獲得！
-    return finalizePickAndAdvanceRound(state, prospectId, myTeamId);
+    // 交渉権獲得！マイチーム確定
+    nextPicked[prospectId] = myTeamId;
+    const nextMyPicks = [...draft.myPicks, prospectId];
+    // 競合相手のCPUは外れ
+    allUnresolvedCpu.push(...competitorTeamIds);
+
+    // 未確定CPU球団たちを外れ1巡目で自動完結し、第2巡目へ進む
+    const fullyPicked = resolveRemainingCpuRound1(state.teams, draft.pool, nextPicked, allUnresolvedCpu);
+    return advanceToRound2(state, fullyPicked, nextMyPicks);
   } else {
-    // ハズレ: 競合球団のいずれかが獲得
+    // ハズレ: 競合相手のCPUの中から1球団が獲得
     const winningCpuTeamId = competitorTeamIds[Math.floor(Math.random() * competitorTeamIds.length)];
-    const nextPicked = { ...draft.picked, [prospectId]: winningCpuTeamId };
+    nextPicked[prospectId] = winningCpuTeamId;
+    // 競合相手で外れたCPU
+    allUnresolvedCpu.push(...competitorTeamIds.filter((id) => id !== winningCpuTeamId));
+
+    // 外れたCPU球団たちで外れ1巡目指名を同時に決定（最大2球団重複）
+    const remainingPool = draft.pool.filter((p) => !nextPicked[p.id]);
+    const unresolvedTeams = allUnresolvedCpu.map((id) => teamMap.get(id)!).filter(Boolean);
+    const nextRound1CpuBids = generateRound1CpuBids(unresolvedTeams, remainingPool);
+
     return {
       ...state,
       draft: {
         ...draft,
         picked: nextPicked,
         pendingLottery: null,
+        round1CpuBids: nextRound1CpuBids,
       },
     };
   }

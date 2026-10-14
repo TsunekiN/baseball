@@ -16,12 +16,15 @@ export interface SideInput {
   order: TeamOrder;
   /** この試合の先発投手ID（ローテ管理のため progress 側で指定）。未指定なら rotationOrder 最小 */
   startPitcherId?: string;
+  /** 連投制限などでこの試合登板不可の投手IDセット */
+  unavailablePitcherIds?: Set<string>;
 }
 
 interface PitcherState {
   player: Player;
   staminaLeft: number; // 残スタミナ（初期=player.stamina）
   line: PitcherLine;
+  enteredInning: number; // 登板開始イニング
 }
 
 interface BatterState {
@@ -39,16 +42,45 @@ const OUTCOME_DESC: Record<AtBatOutcome, string> = {
   HR: '本塁打',
 };
 
+/** ポジション適性チェック（DHは誰でも可、外野はOFならLF/CF/RF可） */
+function canPlayFieldPosition(player: Player, pos: import('../domain/types').FieldPosition): boolean {
+  if (pos === 'DH') return true;
+  if (pos === 'LF' || pos === 'CF' || pos === 'RF') return player.position === 'OF';
+  return player.position === pos;
+}
+
+/**
+ * 毎試合の調子補正（-20〜+10）。
+ * ピッチャーなら制球(control)、バッターならミート(contact)を変化させる。
+ */
+function applyCondition(player: Player, rng: () => number): Player {
+  const diff = -20 + Math.floor(rng() * 31); // -20 〜 +10
+  const clone = { ...player };
+  if (player.type === 'PITCHER') {
+    clone.control = Math.max(1, player.control + diff);
+  } else {
+    clone.contact = Math.max(1, player.contact + diff);
+  }
+  return clone;
+}
+
 /** チーム片側の走行状態 */
 class Side {
   team: Team;
   order: TeamOrder;
   batters: BatterState[]; // 打順9
+  allBatters: BatterState[]; // 試合に出場した全野手（成績集計用）
+  slotPositions: import('../domain/types').FieldPosition[]; // 各打順スロットの守備位置
+  benchBatters: Player[]; // ベンチ控え野手
+  usedBatters: Set<string> = new Set(); // 交代・出場済み野手ID
+  pendingDefensiveReplacements: Map<number, Player> = new Map(); // 次の守備から入る交代選手 (slotIndex -> Player)
   battingIndex = 0;
+
   // 投手
   starter: PitcherState;
   relievers: { setup?: Player; closer?: Player; middles: Player[] };
   used: Set<string> = new Set();
+  unavailablePitchers: Set<string>;
   currentPitcher: PitcherState;
   pitcherStates: Map<string, PitcherState> = new Map();
   loggedPitcherId: string; // 直近ログに出した投手（継投検出用）
@@ -57,50 +89,31 @@ class Side {
   infielders: Player[] = []; // 守備側の内野手（内野ゴロの本塁判定用）
   dpFielders: Player[] = []; // 併殺を担う内野手（二塁手・遊撃手・三塁手）
 
-  constructor(input: SideInput) {
+  constructor(input: SideInput, rng: () => number = Math.random) {
     this.team = input.team;
     this.order = input.order;
-    const pmap = new Map(input.team.players.map((p) => [p.id, p]));
+    this.unavailablePitchers = new Set(input.unavailablePitcherIds ?? []);
 
+    // 調子補正を適用した選手マップを生成（元データは不変）
+    const pmap = new Map(input.team.players.map((p) => [p.id, applyCondition(p, rng)]));
+
+    this.slotPositions = input.order.lineup.map((slot) => slot.position);
     this.batters = input.order.lineup.map((slot) => {
       const p = pmap.get(slot.playerId)!;
       return { player: p, line: emptyBatterLine(p) };
     });
-
-    // 守備側の捕手（盗塁阻止判定用）: スタメンのC、いなければ守備位置Cの控え or 最初の捕手
-    const catcherSlot = input.order.lineup.find((slot) => slot.position === 'C');
-    this.catcher = catcherSlot
-      ? pmap.get(catcherSlot.playerId)
-      : input.team.players.find((p) => p.position === 'C');
-
-    // 守備側の外野手（走者生還判定用）: スタメンのLF/CF/RF
-    this.outfielders = input.order.lineup
-      .filter((slot) => slot.position === 'LF' || slot.position === 'CF' || slot.position === 'RF')
-      .map((slot) => pmap.get(slot.playerId))
-      .filter((p): p is Player => !!p);
-    if (this.outfielders.length === 0) {
-      this.outfielders = input.team.players.filter((p) => p.position === 'OF');
+    this.allBatters = [...this.batters];
+    for (const slot of input.order.lineup) {
+      this.usedBatters.add(slot.playerId);
     }
 
-    // 守備側の内野手（内野ゴロの本塁突入判定用）: スタメンの1B/2B/3B/SS
-    const infPos = ['1B', '2B', '3B', 'SS'];
-    this.infielders = input.order.lineup
-      .filter((slot) => infPos.includes(slot.position))
-      .map((slot) => pmap.get(slot.playerId))
+    // ベンチ控え野手
+    this.benchBatters = (input.order.benchBatters ?? [])
+      .map((id) => pmap.get(id))
       .filter((p): p is Player => !!p);
-    if (this.infielders.length === 0) {
-      this.infielders = input.team.players.filter((p) => infPos.includes(p.position));
-    }
 
-    // 併殺を担う内野手（二塁手・遊撃手・三塁手）
-    const dpPos = ['2B', 'SS', '3B'];
-    this.dpFielders = input.order.lineup
-      .filter((slot) => dpPos.includes(slot.position))
-      .map((slot) => pmap.get(slot.playerId))
-      .filter((p): p is Player => !!p);
-    if (this.dpFielders.length === 0) {
-      this.dpFielders = input.team.players.filter((p) => dpPos.includes(p.position));
-    }
+    // 守備陣の初期設定
+    this.updateDefenseFielders();
 
     // 先発: progress側で指定された投手を優先。未指定なら rotationOrder 最小の STARTER
     const starters = input.order.pitchers
@@ -119,77 +132,251 @@ class Side {
         .filter(Boolean),
     };
 
-    this.starter = this.makePitcherState(starterPlayer);
+    this.starter = this.makePitcherState(starterPlayer, 1);
     this.currentPitcher = this.starter;
     this.used.add(starterPlayer.id);
     this.loggedPitcherId = starterPlayer.id;
   }
 
-  makePitcherState(p: Player): PitcherState {
-    const st: PitcherState = { player: p, staminaLeft: p.stamina, line: emptyPitcherLine(p) };
+  /** 守備位置担当者を最新のスタメン陣から再計算 */
+  updateDefenseFielders(): void {
+    // 捕手
+    const cIdx = this.slotPositions.indexOf('C');
+    this.catcher = cIdx !== -1 ? this.batters[cIdx]?.player : undefined;
+    if (!this.catcher) {
+      this.catcher = this.team.players.find((p) => p.position === 'C');
+    }
+
+    // 外野手 (LF, CF, RF)
+    this.outfielders = [];
+    for (let i = 0; i < this.slotPositions.length; i++) {
+      const pos = this.slotPositions[i];
+      if (pos === 'LF' || pos === 'CF' || pos === 'RF') {
+        const p = this.batters[i]?.player;
+        if (p) this.outfielders.push(p);
+      }
+    }
+    if (this.outfielders.length === 0) {
+      this.outfielders = this.team.players.filter((p) => p.position === 'OF');
+    }
+
+    // 内野手 (1B, 2B, 3B, SS)
+    const infPos = ['1B', '2B', '3B', 'SS'];
+    this.infielders = [];
+    for (let i = 0; i < this.slotPositions.length; i++) {
+      if (infPos.includes(this.slotPositions[i])) {
+        const p = this.batters[i]?.player;
+        if (p) this.infielders.push(p);
+      }
+    }
+    if (this.infielders.length === 0) {
+      this.infielders = this.team.players.filter((p) => infPos.includes(p.position));
+    }
+
+    // 併殺内野手 (2B, SS, 3B)
+    const dpPos = ['2B', 'SS', '3B'];
+    this.dpFielders = [];
+    for (let i = 0; i < this.slotPositions.length; i++) {
+      if (dpPos.includes(this.slotPositions[i])) {
+        const p = this.batters[i]?.player;
+        if (p) this.dpFielders.push(p);
+      }
+    }
+    if (this.dpFielders.length === 0) {
+      this.dpFielders = this.team.players.filter((p) => dpPos.includes(p.position));
+    }
+  }
+
+  /** 守備イニング開始時の処理（保留中の守備交代を適用し、守備陣を更新） */
+  prepareDefense(): void {
+    if (this.pendingDefensiveReplacements.size > 0) {
+      for (const [slotIdx, repPlayer] of this.pendingDefensiveReplacements.entries()) {
+        const defState: BatterState = { player: repPlayer, line: emptyBatterLine(repPlayer) };
+        this.batters[slotIdx] = defState;
+        this.allBatters.push(defState);
+      }
+      this.pendingDefensiveReplacements.clear();
+      this.updateDefenseFielders();
+    }
+  }
+
+  makePitcherState(p: Player, enteredInning: number): PitcherState {
+    const st: PitcherState = { player: p, staminaLeft: p.stamina, line: emptyPitcherLine(p), enteredInning };
     this.pitcherStates.set(p.id, st);
     return st;
   }
 
-  nextBatter(): BatterState {
-    const b = this.batters[this.battingIndex % this.batters.length];
+  /**
+   * 代打起用判定。
+   * 条件:
+   * - 6回以降、得点圏（2塁または3塁）にランナーがいる場合
+   * - 現在の打者よりもミート値が高い控えがいる場合
+   * - ただし同ポジションを守れる選手が控えにいない場合は代打起用しない。
+   * - 次のイニングの守備から、同ポジションを守れる選手に交代する。
+   */
+  maybePinchHit(orderPos: number, inning: number, hasRunnersInScoringPos: boolean): BatterState {
+    const cur = this.batters[orderPos];
+    if (inning < 6 || !hasRunnersInScoringPos) return cur;
+
+    const availableBench = this.benchBatters.filter((p) => !this.usedBatters.has(p.id));
+    const candidates = availableBench.filter((p) => p.contact > cur.player.contact);
+    if (candidates.length === 0) return cur;
+
+    const pos = this.slotPositions[orderPos];
+    candidates.sort((a, b) => b.contact - a.contact);
+
+    for (const cand of candidates) {
+      if (canPlayFieldPosition(cand, pos)) {
+        // 代打選手自身が守備位置を守れる場合
+        this.usedBatters.add(cand.id);
+        const newState: BatterState = { player: cand, line: emptyBatterLine(cand) };
+        this.batters[orderPos] = newState;
+        this.allBatters.push(newState);
+        return newState;
+      }
+      // 代打選手は守れないが、他の控えに守備位置を守れる選手がいる場合
+      const defReplacer = availableBench.find(
+        (p) => p.id !== cand.id && canPlayFieldPosition(p, pos),
+      );
+      if (defReplacer) {
+        this.usedBatters.add(cand.id);
+        this.usedBatters.add(defReplacer.id);
+        this.pendingDefensiveReplacements.set(orderPos, defReplacer);
+        const newState: BatterState = { player: cand, line: emptyBatterLine(cand) };
+        this.batters[orderPos] = newState;
+        this.allBatters.push(newState);
+        return newState;
+      }
+    }
+
+    return cur;
+  }
+
+  nextBatter(inning: number, hasRunnersInScoringPos: boolean): BatterState {
+    const orderPos = this.battingIndex % this.batters.length;
+    const b = this.maybePinchHit(orderPos, inning, hasRunnersInScoringPos);
     this.battingIndex++;
     return b;
   }
 
-  /** 継投判断（イニング開始時）。lead=投げる側から見た点差 */
+  /**
+   * 継投判断（イニング開始時）。lead=投げる側から見た点差。
+   * 条件:
+   * - 7回以降に登板する投手は原則1イニングで交代。6回以前、延長戦で登板した場合でも、最長2イニング。
+   * - リードしていて点差が3点差以内の場合、原則8回は8回の投手、9回は抑えの投手を使う。
+   * - 点差が4点～6点差で勝っている場合、8回9回は中継ぎの2番手、3番手を使う。
+   * - 点差が4点差以上で負けている場合、中継ぎの最下位から順に起用する。
+   * - 先発が無失点を継続していて、スタミナが十分あれば、8回も続投させる。スタミナが十分あれば、9回も続投させる。
+   */
   maybeChangePitcher(inning: number, lead: number) {
     const cur = this.currentPitcher;
     const staminaRatio = cur.staminaLeft / Math.max(cur.player.stamina, 1);
-
-    // 先発の続投判断
     const isStarter = cur.player.id === this.starter.player.id;
     let needChange = false;
+
     if (isStarter) {
-      if (staminaRatio <= 0.15) needChange = true;
-      else if (inning >= 8) needChange = true; // 8回以降はリリーフへ
-      else if (inning >= 7 && staminaRatio <= 0.35) needChange = true;
-      // 7回・僅差リード(1〜3点)でセットアッパーか中継ぎ上位が使えるなら降板
-      else if (inning >= 7 && lead >= 1 && lead <= 3) {
-        const avail = (p?: Player) => p && !this.used.has(p.id);
-        if (avail(this.relievers.setup) || this.relievers.middles.some((p) => !this.used.has(p.id))) {
+      if (staminaRatio <= 0.15) {
+        needChange = true;
+      } else if (cur.line.runs === 0) {
+        // 先発が無失点を継続中
+        if (inning === 8) {
+          if (staminaRatio < 0.35) needChange = true; // スタミナが十分あれば8回も続投
+        } else if (inning === 9) {
+          if (staminaRatio < 0.25) needChange = true; // スタミナが十分あれば9回も続投
+        } else if (inning >= 10) {
+          needChange = true; // 延長戦は交代
+        }
+      } else {
+        // 失点している場合
+        if (inning >= 8) {
           needChange = true;
+        } else if (inning >= 7 && staminaRatio <= 0.35) {
+          needChange = true;
+        } else if (inning >= 7 && lead >= 1 && lead <= 3) {
+          const avail = (p?: Player) => p && !this.used.has(p.id) && !this.unavailablePitchers.has(p.id);
+          if (avail(this.relievers.setup) || this.relievers.middles.some(avail)) {
+            needChange = true;
+          }
         }
       }
     } else {
-      // リリーフは1〜2イニングで交代（スタミナ切れ）
-      if (staminaRatio <= 0.2) needChange = true;
+      // リリーフのイニング制限
+      const pitchedInnings = inning - cur.enteredInning;
+      if (staminaRatio <= 0.15) {
+        needChange = true;
+      } else if (cur.enteredInning >= 7 && cur.enteredInning <= 9) {
+        // 7回以降登板は原則1イニングで交代
+        if (pitchedInnings >= 1) needChange = true;
+      } else {
+        // 6回以前、延長戦登板は最長2イニング
+        if (pitchedInnings >= 2 || staminaRatio <= 0.35) needChange = true;
+      }
     }
+
     if (!needChange) return;
 
     const next = this.pickReliever(inning, lead);
     if (next) {
-      this.currentPitcher = this.makePitcherState(next);
+      this.currentPitcher = this.makePitcherState(next, inning);
       this.used.add(next.id);
     }
   }
 
   pickReliever(inning: number, lead: number): Player | null {
-    const avail = (p?: Player) => p && !this.used.has(p.id);
-    // セーブ展開: 9回リード(1〜3点)は抑え
-    if (inning >= 9 && lead > 0 && lead <= 3 && avail(this.relievers.closer)) {
-      return this.relievers.closer!;
+    const avail = (p?: Player) => p && !this.used.has(p.id) && !this.unavailablePitchers.has(p.id);
+    const availMiddles = this.relievers.middles.filter(avail);
+
+    // 1. リードしていて、点差が3点差以内の場合、原則8回は8回の投手、9回は抑えの投手を使う。
+    if (lead >= 1 && lead <= 3) {
+      if (inning === 8) {
+        if (avail(this.relievers.setup)) return this.relievers.setup!;
+        if (availMiddles.length > 0) return availMiddles[0];
+      } else if (inning === 9) {
+        if (avail(this.relievers.closer)) return this.relievers.closer!;
+        if (avail(this.relievers.setup)) return this.relievers.setup!;
+        if (availMiddles.length > 0) return availMiddles[0];
+      } else if (inning >= 10) {
+        if (avail(this.relievers.closer)) return this.relievers.closer!;
+        if (avail(this.relievers.setup)) return this.relievers.setup!;
+        if (availMiddles.length > 0) return availMiddles[0];
+      } else if (inning === 7) {
+        if (availMiddles.length > 0) return availMiddles[0];
+        if (avail(this.relievers.setup)) return this.relievers.setup!;
+      }
     }
-    // ホールド展開: 7〜8回リード(1〜3点)はセットアッパー
-    if (inning >= 7 && lead > 0 && lead <= 3 && avail(this.relievers.setup)) {
-      return this.relievers.setup!;
+
+    // 2. 点差が4点～6点差で勝っている場合、8回9回は中継ぎの2番手、3番手を使う。
+    if (lead >= 4 && lead <= 6) {
+      if (inning === 8) {
+        const mid2 = this.relievers.middles[1];
+        if (avail(mid2)) return mid2;
+        const mid3 = this.relievers.middles[2];
+        if (avail(mid3)) return mid3;
+        if (availMiddles.length > 0) return availMiddles[0];
+      } else if (inning === 9) {
+        const mid3 = this.relievers.middles[2];
+        if (avail(mid3)) return mid3;
+        const mid2 = this.relievers.middles[1];
+        if (avail(mid2)) return mid2;
+        if (availMiddles.length > 0) return availMiddles[0];
+      }
     }
-    // 9回リード(1〜3点)で抑え不在 → セットアッパー
-    if (inning >= 9 && lead > 0 && lead <= 3 && avail(this.relievers.setup)) {
-      return this.relievers.setup!;
+
+    // 3. 点差が4点差以上で負けている場合、中継ぎの最下位から順に起用する。
+    if (lead <= -4) {
+      for (let i = this.relievers.middles.length - 1; i >= 0; i--) {
+        const p = this.relievers.middles[i];
+        if (avail(p)) return p;
+      }
     }
-    // 中継ぎ: 点差で上位/下位を選ぶ
-    const mids = this.relievers.middles.filter((p) => !this.used.has(p.id));
-    if (mids.length > 0) {
-      if (lead >= -1) return mids[0]; // 僅差〜リード: 上位
-      if (lead <= -5) return mids[mids.length - 1]; // 大差ビハインド: 下位(敗戦処理)
-      return mids[Math.floor(mids.length / 2)]; // 中位
+
+    // 4. その他のケース（同点、僅差ビハインド、大量リード、通常中継ぎなど）
+    if (availMiddles.length > 0) {
+      if (lead >= -1) return availMiddles[0]; // 僅差ビハインド〜同点: 上位
+      if (lead <= -4) return availMiddles[availMiddles.length - 1]; // 敗戦処理: 下位
+      return availMiddles[Math.floor(availMiddles.length / 2)]; // 中位
     }
+
     // 予備: 未使用のセットアッパー/抑え
     if (avail(this.relievers.setup)) return this.relievers.setup!;
     if (avail(this.relievers.closer)) return this.relievers.closer!;
@@ -421,7 +608,8 @@ function playHalf(
   while (outs < 3) {
     const outsBefore = outs;
     const orderPos = offense.battingIndex % offense.batters.length; // これから打つ打順(0-8)
-    const batter = offense.nextBatter();
+    const hasRunnersInScoringPos = !!bases[1] || !!bases[2];
+    const batter = offense.nextBatter(inning, hasRunnersInScoringPos);
     const ps = defense.currentPitcher;
 
     // --- 盗塁企図（打席前）: 一塁走者がいて二塁が空いているとき ---
@@ -675,8 +863,8 @@ function shouldBunt(
 
 /** 1試合をシミュレートする */
 export function simulateGame(away: SideInput, home: SideInput, rng: () => number = Math.random): GameResult {
-  const awaySide = new Side(away);
-  const homeSide = new Side(home);
+  const awaySide = new Side(away, rng);
+  const homeSide = new Side(home, rng);
   const log: PlateAppearance[] = [];
   const innings: InningScore[] = [];
 
@@ -694,6 +882,7 @@ export function simulateGame(away: SideInput, home: SideInput, rng: () => number
 
   while (true) {
     // 表（ビジター攻撃、ホームが守備）
+    homeSide.prepareDefense();
     homeSide.maybeChangePitcher(inning, homeScore - awayScore);
     const top = playHalf(awaySide, homeSide, inning, 'T', log, rng, awayScore, homeScore);
     awayScore += top.runs;
@@ -709,6 +898,7 @@ export function simulateGame(away: SideInput, home: SideInput, rng: () => number
       break;
     }
 
+    awaySide.prepareDefense();
     awaySide.maybeChangePitcher(inning, awayScore - homeScore);
     // サヨナラ閾値: 9回以降、勝ち越しに必要な点
     const walkOffThreshold = inning >= 9 ? awayScore - homeScore + 1 : undefined;
@@ -753,8 +943,8 @@ export function simulateGame(away: SideInput, home: SideInput, rng: () => number
     log,
     awayPitchers: [...awaySide.pitcherStates.values()].map((s) => s.line),
     homePitchers: [...homeSide.pitcherStates.values()].map((s) => s.line),
-    awayBatters: awaySide.batters.map((b) => b.line),
-    homeBatters: homeSide.batters.map((b) => b.line),
+    awayBatters: awaySide.allBatters.map((b) => b.line),
+    homeBatters: homeSide.allBatters.map((b) => b.line),
     fieldErrors,
   };
 }

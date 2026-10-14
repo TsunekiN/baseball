@@ -121,25 +121,62 @@ export function pickForCpu(team: Team, available: Player[]): Player | null {
 }
 
 /**
- * マイチームが1巡目に指名した選手に対する他球団の競合判定。
- * 他の11球団のうち、最大2球団が競合（マイチーム含めて最大3チーム）。
- * @returns 競合するCPUチームID配列（0〜2チーム）
+ * 1巡目（および外れ1巡目）におけるCPU球団の同時指名を生成する。
+ * 条件: 1人の選手を指名するのは最大2球団になるように調整する。
  */
-export function determineFirstRoundCompetitors(prospect: Player, cpuTeams: Team[]): string[] {
-  const score = prospectScore(prospect);
-  // 能力が高いほど競合確率が高い（0%〜最大80%）
-  const pCompete = Math.max(0, Math.min(0.8, (score - 45) / 55));
-  const competitors: string[] = [];
+export function generateRound1CpuBids(
+  unresolvedCpuTeams: Team[],
+  availablePool: Player[],
+): Record<string, string> {
+  const bids: Record<string, string> = {};
+  const prospectBidCounts: Record<string, number> = {};
 
-  // CPUチームをランダムにシャッフルして判定
-  const shuffled = [...cpuTeams].sort(() => Math.random() - 0.5);
-  for (const t of shuffled) {
-    if (competitors.length >= 2) break; // 最大3チーム競合（自チーム+CPU2チーム）
-    if (Math.random() < pCompete) {
-      competitors.push(t.id);
+  for (const team of unresolvedCpuTeams) {
+    // まだ2球団から指名されていない候補のみを対象とする
+    const selectable = availablePool.filter((p) => (prospectBidCounts[p.id] ?? 0) < 2);
+    const pick = pickForCpu(team, selectable);
+    if (pick) {
+      bids[team.id] = pick.id;
+      prospectBidCounts[pick.id] = (prospectBidCounts[pick.id] ?? 0) + 1;
     }
   }
-  return competitors;
+  return bids;
+}
+
+/**
+ * CPUチーム間の1巡目入札における競合を抽選で解決する。
+ * - 単独指名は即決定（winnersに追加）。
+ * - 競合していた選手は抽選で1球団のみ当選（winnersに追加）、外れた球団はlosersへ。
+ */
+export function resolveCpuCompetitions(cpuBids: Record<string, string>): {
+  winners: Record<string, string>; // prospectId -> winningTeamId
+  losers: string[]; // 外れたteamId配列
+} {
+  const prospectToTeams = new Map<string, string[]>();
+  for (const [teamId, prospectId] of Object.entries(cpuBids)) {
+    const list = prospectToTeams.get(prospectId) ?? [];
+    list.push(teamId);
+    prospectToTeams.set(prospectId, list);
+  }
+
+  const winners: Record<string, string> = {};
+  const losers: string[] = [];
+
+  for (const [prospectId, teams] of prospectToTeams.entries()) {
+    if (teams.length === 1) {
+      // 単独指名成功
+      winners[prospectId] = teams[0];
+    } else {
+      // 競合: 抽選で1チームが当選
+      const winningTeam = teams[Math.floor(Math.random() * teams.length)];
+      winners[prospectId] = winningTeam;
+      for (const t of teams) {
+        if (t !== winningTeam) losers.push(t);
+      }
+    }
+  }
+
+  return { winners, losers };
 }
 
 /**
@@ -155,4 +192,5 @@ export function createLotteryDraw(competitorTeamIds: string[]): {
   const winningIndex = Math.floor(Math.random() * totalCards);
   return { totalCards, winningIndex };
 }
+
 

@@ -33,6 +33,8 @@ export interface AdvanceOutput {
   recentGames: RecentGame[];
   /** 更新後の先発登板日マップ（全球団、ローテ管理用） */
   starterLastDay: Record<string, number>;
+  /** 更新後のリリーフ連続登板マップ（全球団、3連投管理用） */
+  relieverConsecutive: Record<string, number>;
 }
 
 /**
@@ -69,6 +71,8 @@ export function advanceMatches(state: GameState): AdvanceOutput {
   let recentGames: RecentGame[] = [...(state.recentGames ?? [])];
   // 先発登板日マップ（全球団）。中5日（day差>5）の登板間隔を守るための状態
   const starterLastDay: Record<string, number> = { ...(state.starterLastDay ?? {}) };
+  // リリーフ連続登板マップ（全球団）。3連投で休養するための状態
+  const relieverConsecutive: Record<string, number> = { ...(state.relieverConsecutive ?? {}) };
 
   // マイチームの一軍が規定人数（野手15・投手14）からずれていたら正規化し、オーダーを再編成する。
   // 負傷補充などでシーズン中に一軍人数が崩れたケースを開幕以外でも補正する。
@@ -120,7 +124,12 @@ export function advanceMatches(state: GameState): AdvanceOutput {
     const team = teamMut[teamId] ?? teamMap.get(teamId)!;
     const order = orderMut[teamId] ?? buildBestOrder(team);
     const startPitcherId = pickStarter(team, order, day);
-    return { team, order, startPitcherId };
+    const unavailablePitcherIds = new Set(
+      team.players
+        .filter((p) => (relieverConsecutive[p.id] ?? 0) >= 2)
+        .map((p) => p.id),
+    );
+    return { team, order, startPitcherId, unavailablePitcherIds };
   };
 
   let cursor = state.gameCursor;
@@ -131,7 +140,7 @@ export function advanceMatches(state: GameState): AdvanceOutput {
   if (cursor >= games.length) {
     return {
       records, gameCursor: cursor, weekIndex: state.weekIndex, myResults, playerStats,
-      finished: true, teams: finalTeams(), orders: orderMut, injuries, recentGames, starterLastDay,
+      finished: true, teams: finalTeams(), orders: orderMut, injuries, recentGames, starterLastDay, relieverConsecutive,
     };
   }
 
@@ -154,6 +163,20 @@ export function advanceMatches(state: GameState): AdvanceOutput {
     const homeStarter = homeSide.startPitcherId ?? res.homePitchers[0]?.playerId;
     if (awayStarter) starterLastDay[awayStarter] = g.day;
     if (homeStarter) starterLastDay[homeStarter] = g.day;
+
+    // リリーフ連投カウントを更新（2試合連続登板で次回休養）
+    updateTeamRelieverConsecutive(
+      teamMut[g.awayId] ?? teamMap.get(g.awayId)!,
+      awayStarter,
+      res.awayPitchers,
+      relieverConsecutive,
+    );
+    updateTeamRelieverConsecutive(
+      teamMut[g.homeId] ?? teamMap.get(g.homeId)!,
+      homeStarter,
+      res.homePitchers,
+      relieverConsecutive,
+    );
     const isMy = !!myId && (g.awayId === myId || g.homeId === myId);
     // マイチーム試合はレポート（達成記録・負傷）を累計反映「前」に算出
     if (isMy) {
@@ -242,7 +265,7 @@ export function advanceMatches(state: GameState): AdvanceOutput {
   const finished = cursor >= games.length;
   return {
     records, gameCursor: cursor, weekIndex, myResults, playerStats, finished,
-    teams: finalTeams(), orders: orderMut, injuries, recentGames, starterLastDay,
+    teams: finalTeams(), orders: orderMut, injuries, recentGames, starterLastDay, relieverConsecutive,
   };
 }
 
@@ -259,5 +282,26 @@ function applyResult(records: Record<string, TeamRecord>, res: GameResult): void
   } else {
     away.wins++;
     home.losses++;
+  }
+}
+
+/** 登板した投手・しなかった投手の連続登板数を更新する */
+function updateTeamRelieverConsecutive(
+  team: Team,
+  starterId: string | undefined,
+  pitchers: import('./matchTypes').PitcherLine[],
+  relieverConsecutive: Record<string, number>,
+): void {
+  const pitchedRelieverPids = new Set(
+    pitchers.filter((p) => p.playerId !== starterId).map((p) => p.playerId),
+  );
+  for (const p of team.players) {
+    if (p.type === 'PITCHER' && p.id !== starterId) {
+      if (pitchedRelieverPids.has(p.id)) {
+        relieverConsecutive[p.id] = (relieverConsecutive[p.id] ?? 0) + 1;
+      } else {
+        relieverConsecutive[p.id] = 0;
+      }
+    }
   }
 }

@@ -132,6 +132,19 @@ export default function App() {
     setGame(createNewGameState());
   };
 
+  // 現在のデータを明示的に保存（ローカルおよびクラウド）
+  const handleManualSave = async () => {
+    saveGameState(game);
+    if (authUser) {
+      setCloudSaving(true);
+      try {
+        await saveGameStateToCloud(authUser.uid, game);
+      } finally {
+        setCloudSaving(false);
+      }
+    }
+  };
+
   // オーダー更新（選手タブの編成画面から）
   const handleUpdateOrder = (teamId: string, order: TeamOrder) => {
     setGame((prev) => ({
@@ -221,6 +234,7 @@ export default function App() {
       injuries: out.injuries,
       recentGames: out.recentGames,
       starterLastDay: out.starterLastDay,
+      relieverConsecutive: out.relieverConsecutive,
       postseason,
     }));
     if (out.myResults.length > 0) setLastResults(out.myResults);
@@ -399,6 +413,7 @@ export default function App() {
             authLoading={authLoading}
             cloudSaving={cloudSaving}
             onToggleTheme={toggleTheme}
+            onSave={handleManualSave}
             onReset={handleReset}
             onUpdateOrder={handleUpdateOrder}
             onAdvance={handleAdvance}
