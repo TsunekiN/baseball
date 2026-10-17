@@ -1,10 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Player, Team, TeamOrder } from '../domain/types';
 import type { InjuryEntry } from '../domain/gameState';
-import { canPlay } from '../domain/orderFactory';
+import { canPlay, cleanTeamOrder } from '../domain/orderFactory';
 import { fieldPositionLabel } from '../domain/orderLabels';
 import { rankColor, rankFromValue } from '../domain/rank';
-import { useSlotDnD } from '../hooks/useSlotDnD';
 
 interface Props {
   team: Team;
@@ -26,8 +25,11 @@ const parseKey = (key: string): SlotRef => {
   return { kind: kind as SlotKind, index: Number(index) };
 };
 
-/** 野手編成: 2列（左=一軍[先発9+控え6] / 右=二軍）ドラッグ&ドロップ（マウス/タッチ両対応） */
+/** 野手編成: ドラッグ＆ドロップおよびタップ選択で打順・ロースターを自由に入れ替え可能 */
 export function BatterFormation({ team, order, onChange, injuries, onSelect }: Props) {
+  const [selected, setSelected] = useState<SlotRef | null>(null);
+  const dragSrcKeyRef = useRef<string | null>(null);
+
   const playerMap = useMemo(() => new Map(team.players.map((p) => [p.id, p])), [team]);
   const injuredBatters = useMemo(
     () => team.players.filter((p) => p.type === 'BATTER' && team.rosterLevel[p.id] === 'IL'),
@@ -47,59 +49,131 @@ export function BatterFormation({ team, order, onChange, injuries, onSelect }: P
     const idB = getId(b);
     if (!idA || !idB) return;
 
-    // スタメン同士: 打順を入れ替える（守備位置ごとスロットを丸ごと交換。制約なし）
+    // スタメン同士: 打順（スロット）ごと丸ごと交換（何番同士でも制限なく自由に変更可能）
     if (a.kind === 'STARTER' && b.kind === 'STARTER') {
       const lineup = [...order.lineup];
       [lineup[a.index], lineup[b.index]] = [lineup[b.index], lineup[a.index]];
-      onChange({ ...order, lineup });
+      onChange(cleanTeamOrder({ ...order, lineup }, team));
+      setSelected(null);
       return;
     }
 
-    // それ以外（控え/二軍が絡む）: 選手だけ交換。スタメン枠は守備適性を検証（DH枠は誰でも可）
     const pA = playerMap.get(idA);
     const pB = playerMap.get(idB);
     if (!pA || !pB) return;
-    if (a.kind === 'STARTER' && !canPlay(pB, order.lineup[a.index].position)) return;
-    if (b.kind === 'STARTER' && !canPlay(pA, order.lineup[b.index].position)) return;
 
+    // スタメンと控え/二軍の入れ替え: 同じ守備位置同士のみ許可（DH枠はポジション問わず可）
+    if (a.kind === 'STARTER' && b.kind !== 'STARTER') {
+      if (!canPlay(pB, order.lineup[a.index].position)) return;
+    }
+    if (b.kind === 'STARTER' && a.kind !== 'STARTER') {
+      if (!canPlay(pA, order.lineup[b.index].position)) return;
+    }
+
+    // 選手をスワップ
     const lineup = [...order.lineup];
     const bench = [...order.benchBatters];
     const farm = [...order.farmBatters];
+
     const setId = (ref: SlotRef, id: string) => {
-      if (ref.kind === 'STARTER') lineup[ref.index] = { ...lineup[ref.index], playerId: id };
-      else if (ref.kind === 'BENCH') bench[ref.index] = id;
-      else farm[ref.index] = id;
+      if (ref.kind === 'STARTER') {
+        lineup[ref.index] = { ...lineup[ref.index], playerId: id };
+      } else if (ref.kind === 'BENCH') {
+        bench[ref.index] = id;
+      } else {
+        farm[ref.index] = id;
+      }
     };
+
     setId(a, idB);
     setId(b, idA);
-    onChange({ ...order, lineup, benchBatters: bench, farmBatters: farm });
+
+    onChange(cleanTeamOrder({ ...order, lineup, benchBatters: bench, farmBatters: farm }, team));
+    setSelected(null);
   };
 
-  const { draggingKey, overKey, bind } = useSlotDnD((src, dst) =>
-    trySwap(parseKey(src), parseKey(dst)),
-  );
+  const handleSlotClick = (ref: SlotRef, p: Player) => {
+    onSelect?.(p);
+
+    if (!selected) {
+      setSelected(ref);
+      return;
+    }
+
+    if (selected.kind === ref.kind && selected.index === ref.index) {
+      setSelected(null);
+      return;
+    }
+
+    trySwap(selected, ref);
+    setSelected(null);
+  };
+
+  // 同一選手が画面上に2箇所表示されるのを防ぐガードSet
+  const seenPlayerIds = new Set<string>();
 
   const renderRow = (ref: SlotRef, posLabel: string) => {
     const id = getId(ref);
     const p = id ? playerMap.get(id) : undefined;
     if (!p) return null;
+    if (seenPlayerIds.has(p.id)) return null;
+    seenPlayerIds.add(p.id);
+
     const k = keyOf(ref);
+    const isSelected = selected ? keyOf(selected) === k : false;
+
     return (
       <div
         key={k}
-        className={`bf-row${overKey === k ? ' over' : ''}${draggingKey === k ? ' dragging' : ''}`}
-        {...bind(k)}
+        className={`bf-row${isSelected ? ' selected' : ''}`}
+        onClick={() => handleSlotClick(ref, p)}
+        draggable
+        onDragStart={(e) => {
+          dragSrcKeyRef.current = k;
+          try {
+            e.dataTransfer.setData('text/plain', k);
+            e.dataTransfer.effectAllowed = 'move';
+          } catch {
+            // fallback
+          }
+          e.currentTarget.classList.add('dragging');
+        }}
+        onDragEnd={(e) => {
+          dragSrcKeyRef.current = null;
+          e.currentTarget.classList.remove('dragging');
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'move';
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragSrcKeyRef.current && dragSrcKeyRef.current !== k) {
+            e.currentTarget.classList.add('over');
+          }
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.classList.remove('over');
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.classList.remove('over');
+          const srcKey = dragSrcKeyRef.current || e.dataTransfer.getData('text/plain');
+          dragSrcKeyRef.current = null;
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+          if (srcKey && srcKey !== k) {
+            trySwap(parseKey(srcKey), ref);
+          }
+        }}
       >
         <span className="bf-pos">{posLabel}</span>
-        <span
-          className="bf-name clickable"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect?.(p);
-          }}
-        >
-          {p.name}
-        </span>
+        <span className="bf-name">{p.name}</span>
         <span className="bf-ranks">
           <Rk v={p.contact} />
           <Rk v={p.power} />
@@ -119,6 +193,7 @@ export function BatterFormation({ team, order, onChange, injuries, onSelect }: P
         {order.lineup.map((slot, i) =>
           renderRow({ kind: 'STARTER', index: i }, `${i + 1} ${fieldPositionLabel(slot.position)}`),
         )}
+
         <div className="bf-sub">控え</div>
         {order.benchBatters.map((_, i) => {
           const id = order.benchBatters[i];
@@ -143,17 +218,9 @@ export function BatterFormation({ team, order, onChange, injuries, onSelect }: P
             {injuredBatters.map((p) => {
               const inj = injuries[p.id];
               return (
-                <div key={p.id} className="bf-row il">
+                <div key={p.id} className="bf-row il" onClick={() => onSelect?.(p)}>
                   <span className="bf-pos">{p.position}</span>
-                  <span
-          className="bf-name clickable"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect?.(p);
-          }}
-        >
-          {p.name}
-        </span>
+                  <span className="bf-name">{p.name}</span>
                   <span className="bf-il-note">
                     {inj ? `全治${inj.gamesLeft}試合` : '離脱中'}
                   </span>

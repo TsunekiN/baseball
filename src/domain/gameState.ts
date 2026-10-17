@@ -1,6 +1,6 @@
 import type { Player, Team, TeamOrder } from './types';
 import { generateAllTeams } from './teamFactory';
-import { buildBestOrder, batterOverall, pitcherOverall } from './orderFactory';
+import { buildBestOrder, normalizeRoster, FIRST_BATTERS, FIRST_PITCHERS } from './orderFactory';
 import { generateSeason, type ScheduleGame } from './seasonSchedule';
 import { SEASON_START_YEAR } from './schedule';
 import type { GameResult } from '../match/matchTypes';
@@ -8,8 +8,10 @@ import type { PlayerSeasonStats } from '../match/matchStats';
 import type { PostseasonState } from '../match/postseason';
 import type { TitleCounts, HallOfFamer } from './stats';
 import type { OffseasonReport } from './offseason';
+import { backfillMissingCareers } from './careerGenerator';
 
 const STORAGE_KEY = 'pennant-game-state';
+const SAVED_AT_KEY = 'pennant-game-state-saved-at';
 export const SCHEMA_VERSION = 23;
 
 /** チームの勝敗記録 */
@@ -51,7 +53,9 @@ export type OffseasonStage = 'SUMMARY' | 'DRAFT' | 'SCOUT';
 export interface ForeignScoutState {
   /** 選択中のポジション（提示を受けたポジション） */
   position: import('./types').Position | null;
-  /** 現在提示中の候補（最大3名） */
+  /** ポジションごとの候補プール（ボタン再押下での再抽選を防止） */
+  pool?: Partial<Record<import('./types').Position, Player[]>>;
+  /** 現在提示中の候補（最大5名） */
   offered: Player[];
   /** 今回のスカウトで獲得した外国人 */
   signed: Player[];
@@ -269,7 +273,7 @@ export function createNewGameState(): GameState {
     year: SEASON_START_YEAR,
     phase: 'REGULAR',
     seasonHistory: [],
-    playerCareers: {},
+    playerCareers: backfillMissingCareers(teams, {}, SEASON_START_YEAR),
     playerTitles: {},
     hallOfFame: [],
     offseasonReport: null,
@@ -285,51 +289,7 @@ export function createNewGameState(): GameState {
   };
 }
 
-/** 一軍の規定人数（投手14・野手15 = 計29）。二軍から昇格して埋める。 */
-const FIRST_BATTERS = 15;
-const FIRST_PITCHERS = 14;
-
-/**
- * 一軍(FIRST)の人数を規定（野手15・投手14）に正規化する。
- * - keepIL=false（既定・オフシーズン用）: 故障者(IL)はまず二軍(FARM)へ戻して全快扱いにする。
- * - keepIL=true（シーズン中用）: IL はそのまま維持し、FARM からのみ昇格して一軍を補充する
- *   （負傷直後の人数補正で IL 選手が即復帰してしまうのを防ぐ）。
- * - FIRST が不足していれば FARM から能力順に昇格、過剰なら能力下位を FARM へ降格。
- * 元のチームはミューテートせず、新しい Team を返す。
- */
-export function normalizeRoster(team: Team, keepIL = false): Team {
-  const rosterLevel: Record<string, import('./types').RosterLevel> = { ...team.rosterLevel };
-  // IL → FARM（オフシーズンの全快時のみ。シーズン中は IL を維持する）
-  if (!keepIL) {
-    for (const id of Object.keys(rosterLevel)) {
-      if (rosterLevel[id] === 'IL') rosterLevel[id] = 'FARM';
-    }
-  }
-
-  const byId = new Map(team.players.map((p) => [p.id, p]));
-  const score = (p: Player) => (p.type === 'BATTER' ? batterOverall(p) : pitcherOverall(p));
-
-  const balance = (type: Player['type'], quota: number) => {
-    const members = team.players.filter((p) => p.type === type);
-    const first = members.filter((p) => rosterLevel[p.id] === 'FIRST');
-    const farm = members.filter((p) => rosterLevel[p.id] === 'FARM');
-    if (first.length < quota) {
-      // 不足分を FARM から能力順に昇格
-      const promote = [...farm].sort((a, b) => score(b) - score(a)).slice(0, quota - first.length);
-      for (const p of promote) rosterLevel[p.id] = 'FIRST';
-    } else if (first.length > quota) {
-      // 過剰分を能力下位から降格
-      const demote = [...first].sort((a, b) => score(a) - score(b)).slice(0, first.length - quota);
-      for (const p of demote) rosterLevel[p.id] = 'FARM';
-    }
-  };
-
-  balance('BATTER', FIRST_BATTERS);
-  balance('PITCHER', FIRST_PITCHERS);
-
-  void byId;
-  return { ...team, rosterLevel };
-}
+export { normalizeRoster, FIRST_BATTERS, FIRST_PITCHERS };
 
 /**
  * 翌シーズンの開幕状態を作る。
@@ -389,19 +349,30 @@ export function loadGameState(): GameState | null {
     if (!parsed.orders) {
       parsed.orders = buildInitialOrders(parsed.teams);
     }
+    // playerCareers が欠損または既存選手に過去記録が無ければバックフィル
+    if (!parsed.playerCareers) {
+      parsed.playerCareers = {};
+    }
+    parsed.playerCareers = backfillMissingCareers(parsed.teams, parsed.playerCareers, parsed.year);
     return parsed;
   } catch {
     return null;
   }
 }
 
-/** localStorage へ保存 */
+/** localStorage へ保存（保存日時も記録） */
 export function saveGameState(state: GameState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(SAVED_AT_KEY, new Date().toISOString());
   } catch {
     // 保存失敗は致命的ではないので握りつぶす（容量超過など）
   }
+}
+
+/** ローカルの最終保存日時を取得 */
+export function getLocalSavedAt(): string | null {
+  return localStorage.getItem(SAVED_AT_KEY);
 }
 
 /** 保存データを消去（タイトルへ戻る/リセット用） */

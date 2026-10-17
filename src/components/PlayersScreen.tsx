@@ -3,7 +3,7 @@ import type { Player, Team, TeamOrder } from '../domain/types';
 import type { AbilitySnapshot, PlayerCareer, InjuryEntry } from '../domain/gameState';
 import type { PlayerSeasonStats } from '../match/matchStats';
 import type { TitleCounts } from '../domain/stats';
-import { buildBestOrder } from '../domain/orderFactory';
+import { buildBestOrder, cleanTeamOrder } from '../domain/orderFactory';
 import { PlayerTable } from './PlayerTable';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { PlayerDetailModal } from './PlayerDetailModal';
@@ -69,20 +69,38 @@ export function PlayersScreen({
     setSelected(null);
   }, [mode, group]);
 
-  // 自動編成: 野手側は打順・控え・二軍の並びをまとめてベストに
+  const [autoNotice, setAutoNotice] = useState<string | null>(null);
+
+  // 自動編成: 野手側は打順・控え・二軍の並びをまとめてベストに修復・編成
   const autoBuildLineup = () => {
     const best = buildBestOrder(team);
-    onChangeOrder({
-      ...order,
-      lineup: best.lineup,
-      benchBatters: best.benchBatters,
-      farmBatters: best.farmBatters,
-    });
+    const repaired = cleanTeamOrder(
+      {
+        ...order,
+        lineup: best.lineup,
+        benchBatters: best.benchBatters,
+        farmBatters: best.farmBatters,
+      },
+      team,
+    );
+    onChangeOrder(repaired);
+    setAutoNotice('野手をベストオーダーに自動編成・修復しました');
+    setTimeout(() => setAutoNotice(null), 2000);
   };
-  // 自動編成: 投手側は起用・二軍の並びをまとめてベストに
+  // 自動編成: 投手側は起用・二軍の並びをまとめてベストに修復・編成
   const autoBuildPitchers = () => {
     const best = buildBestOrder(team);
-    onChangeOrder({ ...order, pitchers: best.pitchers, farmPitchers: best.farmPitchers });
+    const repaired = cleanTeamOrder(
+      {
+        ...order,
+        pitchers: best.pitchers,
+        farmPitchers: best.farmPitchers,
+      },
+      team,
+    );
+    onChangeOrder(repaired);
+    setAutoNotice('投手をベスト布陣に自動編成・修復しました');
+    setTimeout(() => setAutoNotice(null), 2000);
   };
 
   return (
@@ -121,6 +139,7 @@ export function PlayersScreen({
         <>
           <BatterFormation team={team} order={order} onChange={onChangeOrder} injuries={injuries} onSelect={setHeroPlayer} />
           <div className="formation-actions">
+            {autoNotice && <span className="formation-notice">{autoNotice}</span>}
             <button className="ghost-btn auto-btn2" onClick={autoBuildLineup}>
               自動編成
             </button>
@@ -137,6 +156,7 @@ export function PlayersScreen({
         <>
           <PitcherFormation team={team} order={order} onChange={onChangeOrder} injuries={injuries} onSelect={setHeroPlayer} />
           <div className="formation-actions">
+            {autoNotice && <span className="formation-notice">{autoNotice}</span>}
             <button className="ghost-btn auto-btn2" onClick={autoBuildPitchers}>
               自動編成
             </button>

@@ -72,6 +72,38 @@ body {
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 
+/* クラウド保存エラーバナー */
+.cloud-save-error-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #c0392b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.cloud-save-error-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.8;
+}
+.cloud-save-error-close:hover {
+  opacity: 1;
+}
+
 h1,
 h2,
 h3 {
@@ -1551,7 +1583,7 @@ select:disabled {
 
 .bf-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
   background: var(--bg-panel);
@@ -1561,15 +1593,43 @@ select:disabled {
   font-size: 11px;
   cursor: grab;
   user-select: none;
+  transition: background 0.1s ease, border-color 0.1s ease, transform 0.1s ease;
+}
+
+.bf-row > * {
+  pointer-events: none;
+}
+
+.bf-row:active {
+  cursor: grabbing;
+}
+
+.bf-row:hover:not(.selected):not(.over) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .bf-row.dragging {
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
 .bf-row.over {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent) inset;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent) inset, 0 0 8px rgba(46, 213, 115, 0.4) !important;
+  background: rgba(46, 213, 115, 0.18) !important;
+  transform: scale(1.01);
+}
+
+.bf-row.selected {
+  border-color: #ffd043 !important;
+  box-shadow: 0 0 0 2px #ffd043 inset, 0 0 8px rgba(255, 208, 67, 0.4);
+  background: rgba(255, 208, 67, 0.15) !important;
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { box-shadow: 0 0 0 2px #ffd043 inset, 0 0 4px rgba(255, 208, 67, 0.3); }
+  50% { box-shadow: 0 0 0 2px #ffd043 inset, 0 0 10px rgba(255, 208, 67, 0.7); }
 }
 
 .bf-pos {
@@ -1600,8 +1660,21 @@ select:disabled {
 /* 編成: 自動編成ボタン（右下） */
 .formation-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 8px;
+}
+
+.formation-notice {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(46, 213, 115, 0.12);
+  border: 1px solid rgba(46, 213, 115, 0.3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  animation: fadeIn 0.2s ease;
 }
 
 .auto-btn2 {

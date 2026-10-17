@@ -21,7 +21,7 @@ import {
 import { generateForeignProspects } from './foreignScout';
 import type { DraftState, ForeignScoutState } from './gameState';
 import type { Position } from './types';
-import type { League, Player, RosterLevel, Team } from './types';
+import type { League, Player, RosterLevel, Team, TeamOrder } from './types';
 import { buildBestOrder } from './orderFactory';
 import {
   emptyBatting, emptyPitching, battingAvg, battingObp, battingOps, pitchingEra,
@@ -157,12 +157,12 @@ function saveSeason(state: GameState): {
     }
   }
 
-  // --- 選手の年度別成績 ---
+  // --- 選手の年度別成績（全チームの全選手を対象） ---
   const careers: Record<string, PlayerCareer> = { ...state.playerCareers };
-  for (const [pid, stats] of Object.entries(state.playerStats)) {
+  for (const [pid, p] of playerById.entries()) {
     const t = teamOf.get(pid);
-    const p = playerById.get(pid);
-    if (!t || !p) continue;
+    if (!t) continue;
+    const stats = state.playerStats[pid] ?? {};
     const prev = careers[pid];
     const seasons = prev ? [...prev.seasons] : [];
     // 能力は「その年の開幕時スナップショット」を記録（無ければ現在値でフォールバック）
@@ -279,16 +279,25 @@ function coreAbility(p: Player): number {
   return (velo + p.breaking + p.control + p.stamina) / 4;
 }
 
-/** 引退確率（0〜1）。40歳以上は高確率、36〜39歳で能力低下なら中確率、それ以外は0。 */
+/** 引退確率（0〜1）。40歳以上は高確率、40歳に近づくベテラン（36〜39歳）も衰えに応じて引退する場合がある。 */
 function retireProbability(p: Player): number {
+  const ability = coreAbility(p);
   if (p.age >= 40) {
     // 高齢ほど、能力が低いほど引退しやすい
-    const low = Math.max(0, 62 - coreAbility(p)) / 40; // 能力低いと加点
+    const low = Math.max(0, 65 - ability) / 40;
     return Math.min(0.95, 0.6 + (p.age - 40) * 0.1 + low * 0.3);
   }
+  if (p.age >= 38) {
+    // 38〜39歳: 40歳に近づき衰えた選手は引退する場合がある
+    if (ability < 52) return 0.55;
+    if (ability < 60) return 0.35;
+    if (ability < 68) return 0.15;
+    return 0.05;
+  }
   if (p.age >= 36) {
-    // 主力能力が大きく低下している場合のみ中確率
-    if (coreAbility(p) < 58) return 0.4;
+    // 36〜37歳: 大きく能力が低下した場合は引退
+    if (ability < 55) return 0.35;
+    if (ability < 60) return 0.15;
   }
   return 0;
 }
@@ -503,6 +512,13 @@ export function runOffseason(state: GameState): GameState {
   report.retirements = retired.retirements;
   report.hofCandidates = retired.hofCandidates;
 
+  // 引退により空いた一軍枠を二軍から補充し、オーダーも引退選手を除外して最新のベストオーダーに再編成する
+  const normalizedTeams = retired.teams.map((t) => normalizeRoster(t, false));
+  const nextOrders: Record<string, TeamOrder> = { ...state.orders };
+  for (const team of normalizedTeams) {
+    nextOrders[team.id] = buildBestOrder(team);
+  }
+
   // TODO(task8): ドラフト新人加入 → teams へ追加、report.signings
   // TODO(task9): 外国人スカウト → teams へ追加、report.signings
 
@@ -513,7 +529,8 @@ export function runOffseason(state: GameState): GameState {
     playerTitles: nextTitles,
     playerCareers: nextCareers,
     seasonHistory: nextHistory,
-    teams: retired.teams,
+    teams: normalizedTeams,
+    orders: nextOrders,
     phase: 'OFFSEASON',
     offseasonStage: 'SUMMARY',
     offseasonReport: report,
@@ -972,7 +989,8 @@ export function releasePlayer(state: GameState, playerId: string): GameState {
 
   // 一軍の規定人数（野手15・投手14）を保つため、二軍から昇格して補充する。
   // 自由契約で一軍選手が減ると控えが不足するため正規化が必要。
-  const updatedTeam = normalizeRoster(releasedTeam);
+  const isRegular = state.phase === 'REGULAR';
+  const updatedTeam = normalizeRoster(releasedTeam, isRegular);
 
   const nextTeams = state.teams.map((t) => (t.id === myTeamId ? updatedTeam : t));
 
@@ -1048,8 +1066,14 @@ export function canSignForeign(state: GameState): boolean {
 
 /** 外国人スカウトを開始する（ドラフト完了後）。SCOUT段階へ遷移。 */
 export function startForeignScout(state: GameState): GameState {
+  const positions: Position[] = ['P', 'C', '1B', '2B', '3B', 'SS', 'OF'];
+  const pool: Partial<Record<Position, Player[]>> = {};
+  for (const pos of positions) {
+    pool[pos] = generateForeignProspects(pos, state.year + 1, 5);
+  }
   const foreignScout: ForeignScoutState = {
     position: null,
+    pool,
     offered: [],
     signed: [],
     done: false,
@@ -1057,25 +1081,37 @@ export function startForeignScout(state: GameState): GameState {
   return { ...state, offseasonStage: 'SCOUT', foreignScout };
 }
 
-/** 指定ポジションの外国人候補3名を提示する。 */
+/** 指定ポジションの外国人候補5名を提示する。ボタン再押下での再抽選は行わずプールから取得する。 */
 export function offerForeignProspects(state: GameState, position: Position): GameState {
   const fs = state.foreignScout;
   if (!fs || fs.done) return state;
-  const offered = generateForeignProspects(position, state.year + 1, 3);
-  return { ...state, foreignScout: { ...fs, position, offered } };
+  const pool = { ...(fs.pool ?? {}) };
+  if (!pool[position]) {
+    pool[position] = generateForeignProspects(position, state.year + 1, 5);
+  }
+  const offered = pool[position] ?? [];
+  return { ...state, foreignScout: { ...fs, pool, position, offered } };
 }
 
-/** 提示中の候補から1名を獲得する（枠に空きがある場合のみ）。 */
+/** 提示中の候補から1名を獲得する（枠に空きがある場合のみ）。獲得した選手は候補プールから除外される。 */
 export function signForeign(state: GameState, prospectId: string): GameState {
   const fs = state.foreignScout;
   if (!fs || fs.done) return state;
   if (!canSignForeign(state)) return state;
   const target = fs.offered.find((p) => p.id === prospectId);
   if (!target) return state;
+
+  const pos = fs.position;
+  const pool = { ...(fs.pool ?? {}) };
+  if (pos && pool[pos]) {
+    pool[pos] = pool[pos]!.filter((p) => p.id !== prospectId);
+  }
+
   return {
     ...state,
     foreignScout: {
       ...fs,
+      pool,
       signed: [...fs.signed, target],
       offered: [], // 獲得後は提示をクリア（再度ポジション選択）
       position: null,

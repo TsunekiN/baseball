@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { PitcherAssignment, Player, Team, TeamOrder } from '../domain/types';
 import type { InjuryEntry } from '../domain/gameState';
 import { pitcherRoleLabel } from '../domain/orderLabels';
 import { rankColor, rankFromValue, rankFromVelocity } from '../domain/rank';
-import { useSlotDnD } from '../hooks/useSlotDnD';
+import { cleanTeamOrder } from '../domain/orderFactory';
 
 interface Props {
   team: Team;
@@ -27,8 +27,11 @@ const parseKey = (key: string): SlotRef => {
   return { kind: kind as SlotKind, index: Number(index) };
 };
 
-/** 投手編成: 2列（左=一軍投手陣 / 右=二軍）ドラッグ&ドロップ（マウス/タッチ両対応）。制約なし1対1スワップ */
+/** 投手編成: ドラッグ＆ドロップおよびタップ選択で任意の選手同士を自由に入れ替え可能 */
 export function PitcherFormation({ team, order, onChange, injuries, onSelect }: Props) {
+  const [selected, setSelected] = useState<SlotRef | null>(null);
+  const dragSrcKeyRef = useRef<string | null>(null);
+
   const playerMap = useMemo(() => new Map(team.players.map((p) => [p.id, p])), [team]);
   const injuredPitchers = useMemo(
     () => team.players.filter((p) => p.type === 'PITCHER' && team.rosterLevel[p.id] === 'IL'),
@@ -53,43 +56,107 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
     const idB = getId(b);
     if (!idA || !idB) return;
 
-    // 役割はスロットに固定し、選手（playerId）だけを交換する
+    // 役割はスロットに固定し、選手（playerId）だけを交換する（任意の投手同士で制限なし）
     const newStaff: PitcherAssignment[] = staff.map((s) => ({ ...s }));
     const farm = [...order.farmPitchers];
+
     const setId = (ref: SlotRef, id: string) => {
-      if (ref.kind === 'STAFF') newStaff[ref.index] = { ...newStaff[ref.index], playerId: id };
-      else farm[ref.index] = id;
+      if (ref.kind === 'STAFF') {
+        newStaff[ref.index] = { ...newStaff[ref.index], playerId: id };
+      } else {
+        farm[ref.index] = id;
+      }
     };
+
     setId(a, idB);
     setId(b, idA);
-    onChange({ ...order, pitchers: newStaff, farmPitchers: farm });
+
+    onChange(cleanTeamOrder({ ...order, pitchers: newStaff, farmPitchers: farm }, team));
+    setSelected(null);
   };
 
-  const { draggingKey, overKey, bind } = useSlotDnD((src, dst) =>
-    trySwap(parseKey(src), parseKey(dst)),
-  );
+  const handleSlotClick = (ref: SlotRef, p: Player) => {
+    onSelect?.(p);
+
+    if (!selected) {
+      setSelected(ref);
+      return;
+    }
+
+    if (selected.kind === ref.kind && selected.index === ref.index) {
+      setSelected(null);
+      return;
+    }
+
+    trySwap(selected, ref);
+    setSelected(null);
+  };
+
+  // 同一投手が画面上に2箇所表示されるのを防ぐガードSet
+  const seenPitcherIds = new Set<string>();
 
   const renderRow = (ref: SlotRef, roleLabel: string) => {
     const id = getId(ref);
     const p = id ? playerMap.get(id) : undefined;
     if (!p) return null;
+    if (seenPitcherIds.has(p.id)) return null;
+    seenPitcherIds.add(p.id);
+
     const k = keyOf(ref);
+    const isSelected = selected ? keyOf(selected) === k : false;
+
     return (
       <div
         key={k}
-        className={`bf-row${overKey === k ? ' over' : ''}${draggingKey === k ? ' dragging' : ''}`}
-        {...bind(k)}
+        className={`bf-row${isSelected ? ' selected' : ''}`}
+        onClick={() => handleSlotClick(ref, p)}
+        draggable
+        onDragStart={(e) => {
+          dragSrcKeyRef.current = k;
+          try {
+            e.dataTransfer.setData('text/plain', k);
+            e.dataTransfer.effectAllowed = 'move';
+          } catch {
+            // fallback
+          }
+          e.currentTarget.classList.add('dragging');
+        }}
+        onDragEnd={(e) => {
+          dragSrcKeyRef.current = null;
+          e.currentTarget.classList.remove('dragging');
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'move';
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragSrcKeyRef.current && dragSrcKeyRef.current !== k) {
+            e.currentTarget.classList.add('over');
+          }
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.classList.remove('over');
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.classList.remove('over');
+          const srcKey = dragSrcKeyRef.current || e.dataTransfer.getData('text/plain');
+          dragSrcKeyRef.current = null;
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+          if (srcKey && srcKey !== k) {
+            trySwap(parseKey(srcKey), ref);
+          }
+        }}
       >
         <span className="bf-pos">{roleLabel}</span>
-        <span
-          className="bf-name clickable"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect?.(p);
-          }}
-        >
-          {p.name}
-        </span>
+        <span className="bf-name">{p.name}</span>
         <span className="bf-ranks">
           <Rk v={p.velocity} isVelocity />
           <Rk v={p.control} />
@@ -134,17 +201,9 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
             {injuredPitchers.map((p) => {
               const inj = injuries[p.id];
               return (
-                <div key={p.id} className="bf-row il">
+                <div key={p.id} className="bf-row il" onClick={() => onSelect?.(p)}>
                   <span className="bf-pos">P</span>
-                  <span
-          className="bf-name clickable"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect?.(p);
-          }}
-        >
-          {p.name}
-        </span>
+                  <span className="bf-name">{p.name}</span>
                   <span className="bf-il-note">{inj ? `全治${inj.gamesLeft}試合` : '離脱中'}</span>
                 </div>
               );

@@ -16,7 +16,14 @@ export function BatterYearTable({ seasons }: { seasons: SeasonStatLine[] }) {
       {seasons.length === 0 && <div className="md-tr"><span className="off-empty" style={{ gridColumn: '1 / -1' }}>記録なし</span></div>}
       {seasons.map((sl) => {
         const b = sl.stats.batting;
-        if (!b) return null;
+        if (!b || b.games === 0) {
+          return (
+            <div className="md-tr" key={sl.year}>
+              <span>{sl.year}</span>
+              <span style={{ gridColumn: '2 / -1', color: 'var(--text-dim, #888)', textAlign: 'center' }}>一軍出場なし</span>
+            </div>
+          );
+        }
         return (
           <div className="md-tr" key={sl.year}>
             <span>{sl.year}</span>
@@ -41,7 +48,14 @@ export function PitcherYearTable({ seasons }: { seasons: SeasonStatLine[] }) {
       {seasons.length === 0 && <div className="md-tr"><span className="off-empty" style={{ gridColumn: '1 / -1' }}>記録なし</span></div>}
       {seasons.map((sl) => {
         const p = sl.stats.pitching;
-        if (!p) return null;
+        if (!p || p.games === 0) {
+          return (
+            <div className="md-tr" key={sl.year}>
+              <span>{sl.year}</span>
+              <span style={{ gridColumn: '2 / -1', color: 'var(--text-dim, #888)', textAlign: 'center' }}>一軍登板なし</span>
+            </div>
+          );
+        }
         return (
           <div className="md-tr" key={sl.year}>
             <span>{sl.year}</span>

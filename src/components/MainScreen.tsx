@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Team, TeamOrder, Player } from '../domain/types';
 import type { AdvanceUnit, TeamRecord, GamePhase, PlayerCareer, SeasonHistory, InjuryEntry, DraftState, OffseasonStage, ForeignScoutState, RecentGame, AbilitySnapshot } from '../domain/gameState';
 import type { Position } from '../domain/types';
@@ -9,7 +9,7 @@ import type { GameResult } from '../match/matchTypes';
 import type { PlayerSeasonStats } from '../match/matchStats';
 import type { PostseasonState } from '../match/postseason';
 import { calcTeamStrength } from '../domain/teamStrength';
-import { buildBestOrder } from '../domain/orderFactory';
+import { sanitizeOrder } from '../domain/orderFactory';
 import { rankFromValue } from '../domain/rank';
 import { RankBadge } from './RankBadge';
 import { StandingsTable } from './StandingsTable';
@@ -168,7 +168,13 @@ export function MainScreen({
     }
   };
 
-  const myOrder = orders[myTeam.id] ?? buildBestOrder(myTeam);
+  const myOrder = useMemo(() => sanitizeOrder(orders[myTeam.id], myTeam), [orders, myTeam]);
+
+  useEffect(() => {
+    if (orders[myTeam.id] !== myOrder) {
+      onUpdateOrder(myTeam.id, myOrder);
+    }
+  }, [myTeam.id, orders, myOrder, onUpdateOrder]);
   // ヘッダー差し替えは players タブ表示中のみ。選手は最新の teams から引き直す（能力は変動するため）
   const headerPlayer =
     tab === 'players' && heroPlayer

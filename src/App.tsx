@@ -6,6 +6,7 @@ import {
   loadGameState,
   clearGameState,
   saveGameState,
+  getLocalSavedAt,
   type AdvanceUnit,
   type GameState,
 } from './domain/gameState';
@@ -49,7 +50,11 @@ import {
 
 export default function App() {
   // 保存済みがあれば復元、なければ新規（12球団生成・マイチーム未選択）
-  const [game, setGame] = useState<GameState>(() => loadGameState() ?? createNewGameState());
+  const [game, setGame] = useState<GameState>(() => {
+    const local = loadGameState();
+    console.log('[App Init] LocalStorage game:', local ? `year=${local.year}, week=${local.weekIndex}` : 'null');
+    return local ?? createNewGameState();
+  });
   const [lastResults, setLastResults] = useState<GameResult[]>([]);
   // 故障者リストの未確認通知（選手タブで確認するとクリア）
   const [injuryBadge, setInjuryBadge] = useState(false);
@@ -62,30 +67,72 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [cloudSaving, setCloudSaving] = useState(false);
+  // クラウド保存エラーメッセージ（null = エラーなし）
+  const [cloudSaveError, setCloudSaveError] = useState<string | null>(null);
   // クラウドからの初回読み込みが完了したかどうかのフラグ
   const isCloudLoadedRef = useRef(false);
+  // 常に最新の game を参照するための ref（stale closure 防止）
+  const gameRef = useRef(game);
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   // 認証状態の監視
   useEffect(() => {
     const unsubscribe = subscribeAuthState(async (user) => {
+      console.log('[Auth] State changed. user:', user?.uid ?? 'null');
       setAuthUser(user);
       if (user) {
-        // ログイン時: クラウドにセーブデータがあれば取得して続きから再開
-        const cloudGame = await loadGameStateFromCloud(user.uid);
-        if (cloudGame) {
-          setGame(cloudGame);
-          saveGameState(cloudGame); // ローカルキャッシュも同期
-        } else {
-          // セーブデータがない新規ユーザー: マイチーム未選択の初期ステートを用意（球団選択画面へ）
-          const newGame = createNewGameState();
-          setGame(newGame);
-        }
-      } else {
-        // ログアウト時: 一旦クリア
+        // ログイン時: クラウドロード完了前の自動保存を防ぐ
         isCloudLoadedRef.current = false;
+        console.log('[Auth] Starting cloud load...');
+        try {
+          const result = await loadGameStateFromCloud(user.uid);
+          console.log('[Auth] Cloud load result:', result ? `year=${result.state.year}, week=${result.state.weekIndex}, updatedAt=${result.updatedAt}` : 'null');
+
+          if (result) {
+            // ローカルとクラウドのタイムスタンプを比較して新しい方を使う
+            const localSavedAt = getLocalSavedAt();
+            const cloudUpdatedAt = result.updatedAt;
+            const localIsNewer =
+              !!localSavedAt && !!cloudUpdatedAt &&
+              new Date(localSavedAt) > new Date(cloudUpdatedAt);
+
+            console.log('[Auth] localSavedAt:', localSavedAt, '/ cloudUpdatedAt:', cloudUpdatedAt, '/ localIsNewer:', localIsNewer);
+
+            if (localIsNewer) {
+              // ローカルの方が新しい → ローカルをそのまま使用し、クラウドへ同期
+              console.log('[Auth] Local is newer → keeping local state, syncing to cloud.');
+              try {
+                await saveGameStateToCloud(user.uid, gameRef.current);
+              } catch (syncErr) {
+                console.warn('[Auth] Failed to sync local→cloud on login:', syncErr);
+              }
+            } else {
+              // クラウドの方が新しい（または同等）→ クラウドデータを使う
+              console.log('[Auth] Cloud is newer or equal → using cloud data.');
+              setGame(result.state);
+              saveGameState(result.state); // ローカルキャッシュも同期
+            }
+          } else {
+            // クラウドにデータなし（新規ユーザーまたはバージョン不一致）
+            // ローカルデータをそのまま維持（useStateで既に読み込み済み）
+            console.log('[Auth] No valid cloud data → keeping local state (new user or version mismatch).');
+          }
+        } catch (err) {
+          // ネットワークエラー等でクラウドロードが完全に失敗
+          // ローカルデータをそのまま使い、データを上書きしない
+          console.error('[Auth] Cloud load failed (network error). Using local data.', err);
+        }
+        // クラウドからのロードが完了してから自動保存を許可する
+        isCloudLoadedRef.current = true;
+        console.log('[Auth] Cloud load complete. Auto-save enabled.');
+      } else {
+        // ログアウト時: フラグをリセット
+        isCloudLoadedRef.current = false;
+        console.log('[Auth] Logged out. Auto-save disabled.');
       }
       setAuthLoading(false);
-      isCloudLoadedRef.current = true;
     });
     return () => unsubscribe();
   }, []);
@@ -97,19 +144,35 @@ export default function App() {
     advancingRef.current = false;
   }, [game]);
 
-  // 状態が変わるたびにローカル保存 & クラウド保存
+  // 状態が変わるたびにローカル保存 & クラウド保存（デバウンス500ms）
   useEffect(() => {
     saveGameState(game);
 
     if (authUser && isCloudLoadedRef.current) {
+      console.log('[AutoSave] Scheduling cloud save. year:', game.year, 'week:', game.weekIndex);
       setCloudSaving(true);
       const timer = setTimeout(async () => {
-        await saveGameStateToCloud(authUser.uid, game);
-        setCloudSaving(false);
-      }, 500); // 連続操作時の書き込み頻度を抑制（デバウンス）
+        try {
+          await saveGameStateToCloud(authUser.uid, game);
+        } catch (err) {
+          // 自動保存の失敗はサイレント（連続操作中の一時的な失敗もありうるため）
+          console.error('[AutoSave] Cloud save failed:', err);
+        } finally {
+          setCloudSaving(false);
+        }
+      }, 500);
       return () => clearTimeout(timer);
     }
   }, [game, authUser]);
+
+  // タブを閉じる直前にローカルストレージへ確実に保存する
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveGameState(gameRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const myTeam = getMyTeam(game);
 
@@ -137,8 +200,12 @@ export default function App() {
     saveGameState(game);
     if (authUser) {
       setCloudSaving(true);
+      setCloudSaveError(null);
       try {
         await saveGameStateToCloud(authUser.uid, game);
+      } catch (err) {
+        console.error('[ManualSave] Cloud save failed:', err);
+        setCloudSaveError('クラウドへの保存に失敗しました。ネットワーク接続を確認してください。');
       } finally {
         setCloudSaving(false);
       }
@@ -147,10 +214,38 @@ export default function App() {
 
   // オーダー更新（選手タブの編成画面から）
   const handleUpdateOrder = (teamId: string, order: TeamOrder) => {
-    setGame((prev) => ({
-      ...prev,
-      orders: { ...prev.orders, [teamId]: order },
-    }));
+    setGame((prev) => {
+      // オーダーの選手配置に基づいて team.rosterLevel も整合性を保つ
+      const nextTeams = prev.teams.map((t) => {
+        if (t.id !== teamId) return t;
+        const rosterLevel = { ...t.rosterLevel };
+        // 一軍野手
+        for (const slot of order.lineup) {
+          if (slot?.playerId) rosterLevel[slot.playerId] = 'FIRST';
+        }
+        for (const id of order.benchBatters) {
+          if (id) rosterLevel[id] = 'FIRST';
+        }
+        // 二軍野手（IL以外をFARMに）
+        for (const id of order.farmBatters) {
+          if (id && rosterLevel[id] !== 'IL') rosterLevel[id] = 'FARM';
+        }
+        // 一軍投手
+        for (const p of order.pitchers) {
+          if (p?.playerId) rosterLevel[p.playerId] = 'FIRST';
+        }
+        // 二軍投手（IL以外をFARMに）
+        for (const id of order.farmPitchers) {
+          if (id && rosterLevel[id] !== 'IL') rosterLevel[id] = 'FARM';
+        }
+        return { ...t, rosterLevel };
+      });
+      return {
+        ...prev,
+        teams: nextTeams,
+        orders: { ...prev.orders, [teamId]: order },
+      };
+    });
   };
 
   // 新規負傷・復帰をバッジ＋アラートで通知
@@ -361,6 +456,13 @@ export default function App() {
 
   return (
     <>
+      {/* クラウド保存失敗時のエラーバナー */}
+      {cloudSaveError && (
+        <div className="cloud-save-error-banner">
+          <span>⚠️ {cloudSaveError}</span>
+          <button className="cloud-save-error-close" onClick={() => setCloudSaveError(null)}>×</button>
+        </div>
+      )}
       <header className="app-header">
         <div className="app-header-inner">
           {myTeam ? (

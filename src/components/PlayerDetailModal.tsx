@@ -60,25 +60,45 @@ export function PlayerDetailModal({ player, stats, postseasonStats, career, titl
   const proYear = year - player.debutYear + 1;
   const showHidden = proYear >= 3; // 隠しパラメータは入団3年目以降に公開
 
-  // 年度別成績（過去 + 当年を新しい年順）
+  // 年度別成績・能力推移（確定した過去の年度別成績 + 進行中の今年度）
   const seasons: SeasonStatLine[] = useMemo(() => {
     const past = career?.seasons ?? [];
     const list: SeasonStatLine[] = [...past];
-    if (!hof && stats && (stats.batting || stats.pitching)) {
+
+    // 今年度がまだ past に未収録の場合、現在進行中の今年度を最新行として追加
+    if (!hof && !past.some((s) => s.year === year)) {
+      const currentAbilities: AbilitySnapshot = {
+        age: player.age,
+        contact: player.contact,
+        power: player.power,
+        speed: player.speed,
+        defense: player.defense,
+        velocity: player.velocity,
+        breaking: player.breaking,
+        control: player.control,
+        stamina: player.stamina,
+      };
       list.push({
-        year, teamId: '', teamName: '', stats,
-        abilities: {
-          contact: player.contact, power: player.power, speed: player.speed, defense: player.defense,
-          velocity: player.velocity, breaking: player.breaking, control: player.control, stamina: player.stamina,
-          age: player.age,
-        },
+        year,
+        teamId: '',
+        teamName: '今季',
+        stats: stats ?? {},
+        abilities: startAbilities ?? currentAbilities,
       });
     }
-    return list.sort((a, b) => b.year - a.year);
-  }, [career, stats, year, player, hof]);
 
-  // 通算成績
-  const totals = useMemo(() => careerTotals(seasons), [seasons]);
+    return list.sort((a, b) => b.year - a.year);
+  }, [career, stats, startAbilities, player, year, hof]);
+
+  // 通算成績（過去 + 今年度の合算）
+  const totals = useMemo(() => {
+    const past = career?.seasons ?? [];
+    const list: { stats: { batting?: SeasonBatting; pitching?: SeasonPitching } }[] = [...past];
+    if (!hof && stats && (stats.batting || stats.pitching)) {
+      list.push({ stats });
+    }
+    return careerTotals(list);
+  }, [career, stats, hof]);
 
   const titleList = useMemo(() => {
     if (!titles) return [];

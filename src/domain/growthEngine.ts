@@ -64,33 +64,42 @@ export function abilityCap(talent: number, affinity: number): number {
 }
 
 /**
- * 外国人選手の「年間の基本能力変化量」（適応値ベース・年齢によらない）。
+ * 外国人選手の「年間の基本能力変化量」（適応値ベース）。
  *  ・適応50 … ほぼ変化なし
  *  ・適応<50 … 衰え（50から離れるほど減衰大）
  *  ・適応>50 … 成長（50から離れるほど成長大）
- * 才能上限(abilityCap)は影響するが、適応が非常に高いと上限を超えて伸びる場合もある。
+ *  ・35歳以降は加齢衰えが本格化し、日本人同様に40歳に近づくと確実に衰える。
  */
 function annualForeignDelta(player: Player, cur: number, affinity: number): number {
   const adapt = player.adaptability || 50;
   const factor = (adapt - 50) / 50; // -1.0〜+0.98
-  // 1能力あたりの年あたり最大変化幅。4能力合計で適応99→約+60 / 適応0→約-60 を狙い base=15。
   const base = 15; // 年あたりの最大変化幅
 
-  // 高齢による衰え（35歳以降は年齢で下降。適応が高くても高齢には勝てない）
-  const ageDecline = player.age >= 35 ? -(player.age - 34) * 1.3 : 0;
+  // 高齢による衰え（日本人同様に35歳以降本格化。40歳に近づくと確実に衰える）
+  let ageDecline = 0;
+  if (player.age >= 35) {
+    const years = player.age - 34; // 35歳で1年目、40歳で6年目
+    ageDecline = -1.8 * years * (2 - affinity); // 得意能力ほど衰えにくい
+    ageDecline = Math.max(ageDecline, -12);
+  }
 
   // 適応成分
   let adaptComponent: number;
   if (factor <= 0) {
     adaptComponent = factor * base; // 適応50以下は衰え方向（年齢によらず）
   } else {
-    // 成長。才能上限で頭打ちだが、超高適応(>80)は上限を超えて伸ばせる
-    const cap = abilityCap(player.talent, affinity);
-    const overcap = adapt > 80 ? (adapt - 80) * 0.9 : 0; // 上限超過の許容幅
-    const effectiveCap = cap + overcap;
-    const room = effectiveCap - cur;
-    const grow = factor * base;
-    adaptComponent = room <= 0 ? 0 : Math.min(grow, room); // 上限に近いと鈍化
+    // 35歳以降は成長期終了（衰え期に入るため適応によるプラス成長はなし）
+    if (player.age >= 35) {
+      adaptComponent = 0;
+    } else {
+      // 成長。才能上限で頭打ちだが、超高適応(>80)は上限を超えて伸ばせる
+      const cap = abilityCap(player.talent, affinity);
+      const overcap = adapt > 80 ? (adapt - 80) * 0.9 : 0; // 上限超過の許容幅
+      const effectiveCap = cap + overcap;
+      const room = effectiveCap - cur;
+      const grow = factor * base;
+      adaptComponent = room <= 0 ? 0 : Math.min(grow, room); // 上限に近いと鈍化
+    }
   }
 
   return adaptComponent + ageDecline;

@@ -8,15 +8,27 @@ import type { Player, Position } from './types';
 import { generatePlayer } from './playerFactory';
 import { randInt } from './random';
 
-/** 外国人の初期能力レンジ（日本人より幅広くランダム） */
-const FOREIGN_MIN = 15;
+/** 外国人の初期能力レンジ（20〜80、最低1項目が70以上） */
+const FOREIGN_MIN = 20;
 const FOREIGN_MAX = 80;
 
-const randStat = () => randInt(FOREIGN_MIN, FOREIGN_MAX);
+/** 4つの主要能力を生成。各20〜80、最低1つは70以上を保証 */
+function generateForeignCoreStats(): [number, number, number, number] {
+  let stats: [number, number, number, number];
+  do {
+    stats = [
+      randInt(FOREIGN_MIN, FOREIGN_MAX),
+      randInt(FOREIGN_MIN, FOREIGN_MAX),
+      randInt(FOREIGN_MIN, FOREIGN_MAX),
+      randInt(FOREIGN_MIN, FOREIGN_MAX),
+    ];
+  } while (Math.max(...stats) < 70);
+  return stats;
+}
 
 /**
  * 指定ポジションの外国人選手を1名生成する。
- * 能力は15〜80で各能力独立にランダム（ばらつき大）。年齢20〜32、適応値1〜99。
+ * 主要4能力は20〜80（最低1項目は70以上）。年齢20〜32、健康・才能・適応は1〜99。
  */
 function generateForeignPlayer(position: Position, nextYear: number): Player {
   const age = randInt(20, 32);
@@ -29,27 +41,33 @@ function generateForeignPlayer(position: Position, nextYear: number): Player {
     adaptability: randInt(1, 99),
   });
 
+  // 健康、才能、適応は1～99の範囲でランダム
+  p.health = randInt(1, 99);
+  p.talent = randInt(1, 99);
+  p.adaptability = randInt(1, 99);
+
+  const [s1, s2, s3, s4] = generateForeignCoreStats();
+
   if (p.type === 'PITCHER') {
-    // 球速: ランク15〜80 を km/h へ（約131〜161km/h）
-    const veloRank = randStat();
-    p.velocity = Math.round(125 + veloRank * 0.45);
-    p.breaking = randStat();
-    p.control = randStat();
-    p.stamina = randStat();
+    // 球速: ランク20〜80 を km/h へ（約134〜161km/h）
+    p.velocity = Math.round(125 + s1 * 0.45);
+    p.breaking = s2;
+    p.control = s3;
+    p.stamina = s4;
   } else {
-    p.contact = randStat();
-    p.power = randStat();
-    p.speed = randStat();
-    p.defense = randStat();
+    p.contact = s1;
+    p.power = s2;
+    p.speed = s3;
+    p.defense = s4;
   }
 
   return p;
 }
 
 /**
- * スカウトが提示する外国人候補（既定3名）を生成する。
+ * スカウトが提示する外国人候補（既定5名）を生成する。
  */
-export function generateForeignProspects(position: Position, nextYear: number, count = 3): Player[] {
+export function generateForeignProspects(position: Position, nextYear: number, count = 5): Player[] {
   const list: Player[] = [];
   for (let i = 0; i < count; i++) {
     list.push(generateForeignPlayer(position, nextYear));
