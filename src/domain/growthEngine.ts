@@ -33,7 +33,7 @@ const PROFILES: Record<GrowthType, GrowthProfile> = {
 };
 
 /** 決定的ハッシュ（文字列→0..1）。選手ごとの能力適性を固定するため。 */
-function hash01(str: string): number {
+export function hash01(str: string): number {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
@@ -42,63 +42,181 @@ function hash01(str: string): number {
   return (h >>> 0) / 4294967295;
 }
 
-/**
- * 選手ごと・能力ごとの「適性係数」（0.35〜1.65）。
- * 得意な能力は伸びやすく衰えにくい、不得意な能力は伸びにくく衰えやすい。
- * player.id と能力名から決定的に決まる（隠しパラメータ／同じ選手は常に同じ）。
- */
-export function abilityAffinity(playerId: string, key: string): number {
-  return 0.35 + hash01(`${playerId}#${key}`) * 1.3; // 0.35〜1.65
+export type BatterArchetype = 'SLUGGER' | 'CONTACT' | 'SPEED_DEFENSE' | 'DEFENSIVE' | 'BALANCED';
+export type PitcherArchetype = 'FLAMETHROWER' | 'CONTROL_CRAFT' | 'BREAKING_SPECIALIST' | 'WORKHORSE' | 'BALANCED';
+
+/** 守備位置と選手IDから野手アーキタイプ（個性・役割）を決定論的に判定 */
+export function getBatterArchetype(playerId: string, pos?: string): BatterArchetype {
+  const h = hash01(`${playerId}#archetype`);
+  if (pos === '1B' || pos === 'DH') {
+    if (h < 0.60) return 'SLUGGER';
+    if (h < 0.85) return 'CONTACT';
+    return 'BALANCED';
+  }
+  if (pos === '3B') {
+    if (h < 0.45) return 'SLUGGER';
+    if (h < 0.75) return 'CONTACT';
+    return 'BALANCED';
+  }
+  if (pos === 'C') {
+    if (h < 0.40) return 'DEFENSIVE';
+    if (h < 0.65) return 'SLUGGER';
+    if (h < 0.85) return 'CONTACT';
+    return 'BALANCED';
+  }
+  if (pos === 'SS' || pos === '2B') {
+    if (h < 0.40) return 'SPEED_DEFENSE';
+    if (h < 0.70) return 'CONTACT';
+    if (h < 0.85) return 'DEFENSIVE';
+    return 'BALANCED';
+  }
+  if (pos === 'OF') {
+    if (h < 0.35) return 'SPEED_DEFENSE';
+    if (h < 0.65) return 'SLUGGER';
+    if (h < 0.85) return 'CONTACT';
+    return 'BALANCED';
+  }
+  if (h < 0.30) return 'SLUGGER';
+  if (h < 0.55) return 'CONTACT';
+  if (h < 0.75) return 'SPEED_DEFENSE';
+  if (h < 0.90) return 'DEFENSIVE';
+  return 'BALANCED';
+}
+
+/** 投手アーキタイプ（個性・投球スタイル）を決定論的に判定 */
+export function getPitcherArchetype(playerId: string): PitcherArchetype {
+  const h = hash01(`${playerId}#pitcher_archetype`);
+  if (h < 0.25) return 'FLAMETHROWER';
+  if (h < 0.50) return 'CONTROL_CRAFT';
+  if (h < 0.75) return 'BREAKING_SPECIALIST';
+  if (h < 0.90) return 'WORKHORSE';
+  return 'BALANCED';
 }
 
 /**
- * その能力の「到達可能な上限値」。才能(talent)が主に決め、能力ごとの適性(affinity)で
- * 大きくばらつく（得意能力は上限が高く、不得意能力は低い）。
- * 主要4能力の成長は95以上で極端に遅くなるが、ハード上限は120。
- *  才能30 → 概ね55、才能60 → 79、才能99 → 110 を基準に、適性で ±約15。
+ * 選手ごと・能力ごとの「適性係数」（0.45〜1.55）。
+ * アーキタイプ（個性）に応じて得意能力に高い適性（上限が高く成長しやすい）、
+ * 不得意能力に低い適性（上限が低く成長しにくい）を付与。
+ * これにより全4能力が平均化することを完全に防止し、生涯にわたって強い個性を維持する。
  */
-export function abilityCap(talent: number, affinity: number): number {
-  const base = 55 + ((talent - 30) / 69) * 55; // 才能30→55, 99→110
-  const cap = base + (affinity - 1.0) * 22; // 適性で±約14（バラつき大きめ）
-  return Math.max(40, Math.min(118, cap));
+export function abilityAffinity(playerId: string, key: string): number {
+  const isPitcherKey = ['velocity', 'breaking', 'control', 'stamina'].includes(key);
+
+  let base = 1.0;
+  if (!isPitcherKey) {
+    const arch = getBatterArchetype(playerId);
+    switch (arch) {
+      case 'SLUGGER':
+        if (key === 'power') base = 1.48;
+        else if (key === 'contact') base = 1.02;
+        else if (key === 'defense') base = 0.85;
+        else if (key === 'speed') base = 0.65;
+        break;
+      case 'CONTACT':
+        if (key === 'contact') base = 1.48;
+        else if (key === 'speed') base = 1.08;
+        else if (key === 'defense') base = 0.84;
+        else if (key === 'power') base = 0.60;
+        break;
+      case 'SPEED_DEFENSE':
+        if (key === 'speed') base = 1.50;
+        else if (key === 'defense') base = 1.20;
+        else if (key === 'contact') base = 0.80;
+        else if (key === 'power') base = 0.50;
+        break;
+      case 'DEFENSIVE':
+        if (key === 'defense') base = 1.50;
+        else if (key === 'speed') base = 0.95;
+        else if (key === 'contact') base = 0.85;
+        else if (key === 'power') base = 0.70;
+        break;
+      case 'BALANCED':
+      default: {
+        const h = hash01(`${playerId}#bal#${key}`);
+        base = 0.85 + h * 0.30;
+        break;
+      }
+    }
+  } else {
+    const arch = getPitcherArchetype(playerId);
+    switch (arch) {
+      case 'FLAMETHROWER':
+        if (key === 'velocity') base = 1.50;
+        else if (key === 'breaking') base = 1.05;
+        else if (key === 'stamina') base = 0.85;
+        else if (key === 'control') base = 0.60;
+        break;
+      case 'CONTROL_CRAFT':
+        if (key === 'control') base = 1.50;
+        else if (key === 'breaking') base = 1.15;
+        else if (key === 'stamina') base = 0.80;
+        else if (key === 'velocity') base = 0.55;
+        break;
+      case 'BREAKING_SPECIALIST':
+        if (key === 'breaking') base = 1.50;
+        else if (key === 'control') base = 1.05;
+        else if (key === 'velocity') base = 0.85;
+        else if (key === 'stamina') base = 0.60;
+        break;
+      case 'WORKHORSE':
+        if (key === 'stamina') base = 1.50;
+        else if (key === 'control') base = 1.10;
+        else if (key === 'velocity') base = 0.80;
+        else if (key === 'breaking') base = 0.60;
+        break;
+      case 'BALANCED':
+      default: {
+        const h = hash01(`${playerId}#pbal#${key}`);
+        base = 0.85 + h * 0.30;
+        break;
+      }
+    }
+  }
+
+  const jit = (hash01(`${playerId}#jit#${key}`) - 0.5) * 0.08;
+  return Math.max(0.45, Math.min(1.6, base + jit));
+}
+
+/**
+ * その能力の「到達可能な上限値（ハードキャップ・基準値）」。
+ * 才能(talent)がベースを決め、適性(affinity)で±18〜22ポイントの大差がつく。
+ * 才能に基づくブレーキにより、才能を超えて全能力がインフレすることを強力に防止する。
+ */
+export function abilityCap(talent: number, affinity: number, effort = 50): number {
+  const effortBonus = ((effort - 50) / 49) * 3.5;
+  const cap = talent + (affinity - 1.0) * 22 + effortBonus;
+  return Math.max(25, Math.min(105, cap));
 }
 
 /**
  * 外国人選手の「年間の基本能力変化量」（適応値ベース）。
- *  ・適応50 … ほぼ変化なし
- *  ・適応<50 … 衰え（50から離れるほど減衰大）
- *  ・適応>50 … 成長（50から離れるほど成長大）
- *  ・35歳以降は加齢衰えが本格化し、日本人同様に40歳に近づくと確実に衰える。
+ * 才能・適性に応じた個別天井ブレーキを適用し、過剰成長を抑制。
  */
-function annualForeignDelta(player: Player, cur: number, affinity: number): number {
+function annualForeignDelta(player: Player, cur: number, affinity: number, isVelocity = false): number {
   const adapt = player.adaptability || 50;
   const factor = (adapt - 50) / 50; // -1.0〜+0.98
-  const base = 15; // 年あたりの最大変化幅
+  const base = 4.5; // 年あたりの最大変化幅
 
-  // 高齢による衰え（日本人同様に35歳以降本格化。40歳に近づくと確実に衰える）
+  // 高齢による衰え
   let ageDecline = 0;
-  if (player.age >= 35) {
-    const years = player.age - 34; // 35歳で1年目、40歳で6年目
-    ageDecline = -1.8 * years * (2 - affinity); // 得意能力ほど衰えにくい
-    ageDecline = Math.max(ageDecline, -12);
+  if (player.age >= 34) {
+    const years = player.age - 33;
+    ageDecline = -1.6 * years * (2 - affinity);
+    ageDecline = Math.max(ageDecline, -10);
   }
 
-  // 適応成分
-  let adaptComponent: number;
+  let adaptComponent = 0;
   if (factor <= 0) {
-    adaptComponent = factor * base; // 適応50以下は衰え方向（年齢によらず）
+    adaptComponent = factor * base;
   } else {
-    // 35歳以降は成長期終了（衰え期に入るため適応によるプラス成長はなし）
-    if (player.age >= 35) {
-      adaptComponent = 0;
-    } else {
-      // 成長。才能上限で頭打ちだが、超高適応(>80)は上限を超えて伸ばせる
-      const cap = abilityCap(player.talent, affinity);
-      const overcap = adapt > 80 ? (adapt - 80) * 0.9 : 0; // 上限超過の許容幅
-      const effectiveCap = cap + overcap;
+    if (player.age < 34) {
+      const cap = abilityCap(player.talent, affinity, 50);
+      const effectiveCap = isVelocity ? Math.round(123 + cap * 0.4) : cap;
       const room = effectiveCap - cur;
-      const grow = factor * base;
-      adaptComponent = room <= 0 ? 0 : Math.min(grow, room); // 上限に近いと鈍化
+      if (room > 0) {
+        const brake = Math.min(1.0, Math.pow(room / (isVelocity ? 6 : 14), 1.3));
+        adaptComponent = factor * base * brake;
+      }
     }
   }
 
@@ -117,68 +235,32 @@ function clampAbility(v: number, min: number, max: number): number {
 
 /**
  * 成長量に対して「95以上で1/4抑制」を適用して返す。
- * - cur < 95: 抑制なし (係数1.0)
- * - cur >= 95 かつ delta > 0（成長方向のみ）: 係数0.25
- * - delta <= 0（衰え方向）: 抑制なし
  */
 function applyGrowthCap(cur: number, delta: number): number {
-  if (delta <= 0) return delta; // 衰えは通常通り
+  if (delta <= 0) return delta;
   if (cur >= 95) return delta * 0.25;
   return delta;
 }
 
-/** 球速(km/h)を能力値換算する（velocity-80）。平均能力の計算・成長配分に使う。 */
+/** 球速(km/h)を能力値換算する（123km/hを0として0.4km/h=1pt）。 */
 function veloToAbility(velocity: number): number {
-  return velocity - 80;
+  return (velocity - 123) / 0.4;
 }
 
 /**
  * 成長タイプ・年齢による年間成長カーブ（0〜1 程度）。
- * declineAge 以降は 0（衰えは別途計算）。成長期はピークで最大、ピーク前後は小さめ。
+ * declineAge 以降は 0（衰えは別途計算）。
  */
 function growthCurve(player: Player): number {
   const prof = PROFILES[player.growth_type];
   const age = player.age;
   if (age >= prof.declineAge) return 0;
-  if (age < prof.growStartAge) return 0.6 * prof.growSpeed;
+  if (age < prof.growStartAge) return 0.55 * prof.growSpeed;
   if (age <= prof.peakEndAge) {
     const span = prof.peakEndAge - prof.growStartAge + 1;
     return (0.7 + 0.3 * ((prof.peakEndAge - age + 1) / span)) * prof.growSpeed;
   }
   return 0.3 * prof.growSpeed;
-}
-
-/**
- * 平均能力が「到達目標」に近づくにつれて成長を鈍化させる係数（0〜1）。
- * 到達目標 = 才能値 + 努力ボーナス（努力99で才能+15、努力に比例）。
- * 目標まで SPAN(=20) ポイント以上の余地があれば抑制なし(1)、近づくほど線形に低下し、
- * 平均が目標に達すると 0（ほぼ成長停止）。
- * これにより主要4能力の平均は、努力が高い選手で才能+10〜15、低い選手で才能付近に収束する。
- */
-function talentSuppress(avgAbility: number, talent: number, effort: number): number {
-  // 努力50を基準に、努力99→才能+15、努力50→才能ちょうど、努力50未満→才能に届かない（マイナス）。
-  const effortBonus = ((effort - 50) / 49) * 15;
-  const target = talent + effortBonus;
-  const SPAN = 20;
-  const room = target - avgAbility; // 正＝まだ伸びる余地
-  return Math.max(0, Math.min(1, room / SPAN));
-}
-
-/**
- * その年に各能力へ配分する重み（毎年ランダム）。選手ID＋年齢＋能力名から決定的に算出。
- * 年齢が毎年変わるため「どの能力が大きく伸びるか」が年ごとに変化する。平均が1.0になるよう正規化。
- */
-function yearlyWeights(playerId: string, age: number, keys: string[]): Record<string, number> {
-  const raw: Record<string, number> = {};
-  let sum = 0;
-  for (const k of keys) {
-    const w = 0.4 + hash01(`${playerId}#${age}#${k}`) * 1.2; // 0.4〜1.6
-    raw[k] = w;
-    sum += w;
-  }
-  const out: Record<string, number> = {};
-  for (const k of keys) out[k] = (raw[k] / sum) * keys.length;
-  return out;
 }
 
 /** 1人の選手に「weeks週分」の成長/衰えを適用（能力をミューテート） */
@@ -194,36 +276,70 @@ function growPlayer(p: Player, weeks: number): void {
     ? ['velocity', 'breaking', 'control', 'stamina']
     : ['contact', 'power', 'speed', 'defense'];
 
-  // 現在の平均能力（球速は velocity-80 換算）
+  // 現在の平均能力（球速は通常能力値換算）
   const abilityValue = (key: string) =>
     key === 'velocity' ? veloToAbility(p.velocity) : (p[key as keyof Player] as number);
   const avg = keys.reduce((s, k) => s + abilityValue(k), 0) / keys.length;
 
   if (p.age < prof.declineAge) {
     // === 成長期 ===
-    // 努力に比例（0.3〜1.0）× 才能超過による抑制 × 成長タイプの年齢カーブ
-    const effortMul = 0.3 + (p.effort / 99) * 0.7;
-    const suppress = talentSuppress(avg, p.talent, p.effort);
+    const effortMul = 0.35 + (p.effort / 99) * 0.65;
     const curve = growthCurve(p);
-    // 好条件（努力99=effortMul1.0 / 才能十分=suppress1.0 / 成長期ピーク=curve≈1.0）で
-    // 4能力合計の年間増分が約40になるよう係数10.0に設定（1能力平均≈10×4）。
-    const perAbilityAnnual = 10.0 * effortMul * suppress * curve; // 1能力あたり年間平均成長量
-    const weights = yearlyWeights(p.id, p.age, keys);
+
+    // 全体平均の才能超過ブレーキ
+    const targetAvg = p.talent + ((p.effort - 50) / 49) * 3.5;
+    const avgRoom = targetAvg - avg;
+    const overallBrake = avgRoom <= 0 ? 0 : Math.min(1.0, Math.pow(avgRoom / 12, 1.2));
+
+    // 年間ベース成長量（3.6pt/年を上限ベースに設定し、過剰成長を防止）
+    const baseAnnual = 3.6;
 
     for (const key of keys) {
-      const annual = perAbilityAnnual * weights[key];
-      const perWeek = annual / SEASON_WEEKS;
-      const jit = 0.25;
+      const affinity = abilityAffinity(p.id, key);
+      const cap = abilityCap(p.talent, affinity, p.effort);
+
+      let currentVal: number;
+      let room: number;
+      let maxRoom: number;
+
       if (key === 'velocity') {
-        // 球速は終始1/4ペースでしか成長しない
+        currentVal = p.velocity;
+        const veloCapKmh = Math.round(123 + cap * 0.4);
+        room = veloCapKmh - currentVal;
+        maxRoom = 6;
+      } else {
+        currentVal = p[key as keyof Player] as number;
+        room = cap - currentVal;
+        maxRoom = 14;
+      }
+
+      // 個別能力の上限ブレーキ: 上限到達で完全停止、近づくほど急激に減速
+      if (room <= 0) {
+        continue;
+      }
+      const individualBrake = Math.min(1.0, Math.pow(room / maxRoom, 1.4));
+
+      // 総合ブレーキ（個別天井ブレーキ × 全体平均ブレーキ）
+      const totalBrake = individualBrake * (0.2 + 0.8 * overallBrake);
+
+      // 適性による成長重み（得意能力ほど成長リソースが集中し、弱点は伸びにくい）
+      const weight = Math.pow(affinity, 2.0);
+
+      const annual = baseAnnual * effortMul * curve * totalBrake * weight;
+      const perWeek = annual / SEASON_WEEKS;
+      const jit = 0.12 * affinity;
+
+      if (key === 'velocity') {
         let v = p.velocity;
-        for (let w = 0; w < weeks; w++) v += perWeek * 0.25 + jitter(jit * 0.1);
+        for (let w = 0; w < weeks; w++) v += perWeek * 0.25 + jitter(jit * 0.05);
         p.velocity = clampAbility(v, 125, 170);
       } else {
         let v = p[key as keyof Player] as number;
         for (let w = 0; w < weeks; w++) {
-          const base = perWeek + jitter(jit);
-          v += applyGrowthCap(v, base);
+          const delta = perWeek + jitter(jit);
+          if (delta > 0) {
+            v += applyGrowthCap(v, delta);
+          }
         }
         (p as unknown as Record<string, number>)[key] = clampAbility(v, 20, 120);
       }
@@ -236,31 +352,30 @@ function growPlayer(p: Player, weeks: number): void {
   for (const key of keys) {
     const affinity = abilityAffinity(p.id, key);
     let decline = -1.6 * years * prof.declineSpeed;
-    decline *= 2 - affinity; // 得意能力ほど衰えにくい
+    decline *= 2 - affinity; // 得意能力ほど衰えにくい（個性の維持）
     decline = Math.max(decline, -11);
     const perWeek = decline / SEASON_WEEKS;
     const jit = 0.25 * affinity;
     if (key === 'velocity') {
       let v = p.velocity;
-      for (let w = 0; w < weeks; w++) v += perWeek * 0.5 + jitter(jit * 0.5); // 衰えは通常通り
+      for (let w = 0; w < weeks; w++) v += perWeek * 0.5 + jitter(jit * 0.5);
       p.velocity = clampAbility(v, 125, 170);
     } else {
       let v = p[key as keyof Player] as number;
-      for (let w = 0; w < weeks; w++) v += perWeek + jitter(jit); // 衰えは通常通り
+      for (let w = 0; w < weeks; w++) v += perWeek + jitter(jit);
       (p as unknown as Record<string, number>)[key] = clampAbility(v, 20, 120);
     }
   }
 }
 
-/** 外国人選手の成長（適応値ベース）。主要4能力はMAX100・95以上で成長1/4抑制。 */
+/** 外国人選手の成長（適応値ベース）。 */
 function growForeign(p: Player, weeks: number): void {
-  // 95以上は成長1/4・衰えは通常通り
   const applyOneCapped = (cur: number, min: number, max: number, key: string): number => {
     const affinity = abilityAffinity(p.id, key);
     const delta = annualForeignDelta(p, cur, affinity);
     const perWeek = delta / SEASON_WEEKS;
     let v = cur;
-    const jit = 0.3 * affinity;
+    const jit = 0.2 * affinity;
     for (let w = 0; w < weeks; w++) {
       const base = perWeek + jitter(jit);
       v += applyGrowthCap(v, base);
@@ -273,10 +388,9 @@ function growForeign(p: Player, weeks: number): void {
     p.speed = applyOneCapped(p.speed, 20, 120, 'speed');
     p.defense = applyOneCapped(p.defense, 20, 120, 'defense');
   } else {
-    // 球速は終始1/4ペース
     const veloAff = abilityAffinity(p.id, 'velocity');
-    const veloDelta = annualForeignDelta(p, (p.velocity - 125) * 2.5, veloAff) / SEASON_WEEKS;
-    for (let w = 0; w < weeks; w++) p.velocity += veloDelta * 0.25 + jitter(0.08 * veloAff);
+    const veloDelta = annualForeignDelta(p, p.velocity, veloAff, true) / SEASON_WEEKS;
+    for (let w = 0; w < weeks; w++) p.velocity += veloDelta * 0.25 + jitter(0.04 * veloAff);
     p.velocity = clampAbility(p.velocity, 125, 170);
     p.breaking = applyOneCapped(p.breaking, 20, 120, 'breaking');
     p.control = applyOneCapped(p.control, 20, 120, 'control');

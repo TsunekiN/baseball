@@ -25,24 +25,27 @@ function generatePastSeasonStats(
   player: Player,
   year: number,
   proYear: number,
+  currentYear: number,
   teamId: string,
   teamName: string,
   rng: () => number,
 ): SeasonStatLine {
   const isPitcher = player.type === 'PITCHER';
-  const ageAtYear = player.age - (player.debutYear + proYear - 1);
+  // 対象年度における実年齢（現在年度からの経過年数を差し引く）
+  const yearsAgo = Math.max(0, currentYear - year);
+  const ageAtYear = Math.max(18, player.age - yearsAgo);
 
   // 若手時代は能力が発展途上、全盛期（25〜30歳）は高め
-  const primeFactor = Math.max(0.6, Math.min(1.0, 0.7 + (ageAtYear - 18) * 0.04));
+  const primeFactor = Math.max(0.65, Math.min(1.0, 0.75 + (ageAtYear - 18) * 0.035));
 
   // 能力スナップショット
   const abilities: AbilitySnapshot = {
-    age: Math.max(18, ageAtYear),
+    age: ageAtYear,
     contact: Math.round(player.contact * primeFactor),
     power: Math.round(player.power * primeFactor),
-    speed: Math.round(player.speed * Math.min(1.1, 1.2 - (ageAtYear - 18) * 0.015)),
+    speed: Math.round(player.speed * Math.min(1.1, 1.15 - (ageAtYear - 18) * 0.012)),
     defense: Math.round(player.defense * primeFactor),
-    velocity: Math.round(player.velocity - (player.age - ageAtYear) * 0.5),
+    velocity: Math.max(120, Math.round(player.velocity - yearsAgo * 0.4)),
     breaking: Math.round(player.breaking * primeFactor),
     control: Math.round(player.control * primeFactor),
     stamina: Math.round(player.stamina * primeFactor),
@@ -185,7 +188,7 @@ export function generatePlayerPastCareer(
   for (let y = debutYear; y < currentYear; y++) {
     const proYear = y - debutYear + 1;
     const rng = seededRandom(`${player.id}_${y}`);
-    const line = generatePastSeasonStats(player, y, proYear, teamId, teamName, rng);
+    const line = generatePastSeasonStats(player, y, proYear, currentYear, teamId, teamName, rng);
     seasons.push(line);
   }
 
@@ -229,3 +232,108 @@ export function backfillMissingCareers(
 
   return careers;
 }
+
+/**
+ * 過去の年度別能力推移や年度別成績に破損データ（異常な年齢・球速・他選手データの混入など）があれば修復する。
+ */
+export function sanitizePlayerCareers(
+  teams: { id: string; nickName: string; players: Player[] }[],
+  careers: Record<string, PlayerCareer>,
+  currentYear: number,
+): Record<string, PlayerCareer> {
+  const next: Record<string, PlayerCareer> = { ...careers };
+  const playerMap = new Map<string, { player: Player; teamId: string; teamName: string }>();
+  for (const t of teams) {
+    for (const p of t.players) {
+      playerMap.set(p.id, { player: p, teamId: t.id, teamName: t.nickName });
+    }
+  }
+
+  for (const [pid, career] of Object.entries(next)) {
+    if (!career || !Array.isArray(career.seasons)) continue;
+    const info = playerMap.get(pid);
+    const p = info?.player;
+    const cleanedSeasons: SeasonStatLine[] = [];
+    const seenYears = new Set<number>();
+
+    for (const s of career.seasons) {
+      if (!s || typeof s.year !== 'number') continue;
+      if (seenYears.has(s.year)) continue;
+      seenYears.add(s.year);
+
+      const ab = { ...(s.abilities ?? {}) } as AbilitySnapshot;
+      const yearsAgo = Math.max(0, currentYear - s.year);
+
+      if (p) {
+        // 年齢の破損チェック（15歳未満または80歳超、または実年齢からの乖離があれば再計算）
+        if (ab.age == null || ab.age < 15 || ab.age > 80 || Math.abs(ab.age - (p.age - yearsAgo)) > 2) {
+          ab.age = Math.max(18, p.age - yearsAgo);
+        }
+
+        if (p.type === 'PITCHER') {
+          // 投手の球速破損チェック（120km/h未満または175km/h超、または現在値から大きく乖離なら再計算）
+          if (ab.velocity == null || ab.velocity < 120 || ab.velocity > 175 || Math.abs(ab.velocity - p.velocity) > 25) {
+            ab.velocity = Math.max(120, Math.round(p.velocity - yearsAgo * 0.4));
+          }
+          // 他野手データで上書きされた可能性がある場合、制球・変化・スタミナの極端な低下を修復
+          if (ab.control == null || (ab.control < 25 && p.control >= 40)) {
+            ab.control = Math.round(p.control * Math.max(0.7, 1 - yearsAgo * 0.03));
+          }
+          if (ab.breaking == null || (ab.breaking < 25 && p.breaking >= 40)) {
+            ab.breaking = Math.round(p.breaking * Math.max(0.7, 1 - yearsAgo * 0.03));
+          }
+          if (ab.stamina == null || (ab.stamina < 25 && p.stamina >= 40)) {
+            ab.stamina = Math.round(p.stamina * Math.max(0.7, 1 - yearsAgo * 0.03));
+          }
+        } else {
+          // 野手
+          if (ab.contact == null || (ab.contact < 25 && p.contact >= 40)) {
+            ab.contact = Math.round(p.contact * Math.max(0.7, 1 - yearsAgo * 0.03));
+          }
+          if (ab.power == null || (ab.power < 25 && p.power >= 40)) {
+            ab.power = Math.round(p.power * Math.max(0.7, 1 - yearsAgo * 0.03));
+          }
+        }
+      }
+
+      // 成績データの混入チェック（投手に打者成績、または打者に投手成績が混入している場合）
+      let stats = s.stats;
+      if (p && info) {
+        if (p.type === 'PITCHER' && stats.batting && !stats.pitching) {
+          const proYear = Math.max(1, s.year - p.debutYear + 1);
+          const regenerated = generatePastSeasonStats(
+            p,
+            s.year,
+            proYear,
+            currentYear,
+            s.teamId || info.teamId,
+            s.teamName || info.teamName,
+            seededRandom(`${p.id}_${s.year}`)
+          );
+          stats = regenerated.stats;
+        } else if (p.type === 'BATTER' && stats.pitching && !stats.batting) {
+          const proYear = Math.max(1, s.year - p.debutYear + 1);
+          const regenerated = generatePastSeasonStats(
+            p,
+            s.year,
+            proYear,
+            currentYear,
+            s.teamId || info.teamId,
+            s.teamName || info.teamName,
+            seededRandom(`${p.id}_${s.year}`)
+          );
+          stats = regenerated.stats;
+        }
+      }
+
+      cleanedSeasons.push({ ...s, stats, abilities: ab });
+    }
+
+    cleanedSeasons.sort((a, b) => a.year - b.year);
+    next[pid] = { ...career, playerId: pid, seasons: cleanedSeasons };
+  }
+
+  return next;
+}
+
+

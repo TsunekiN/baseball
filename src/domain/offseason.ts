@@ -11,16 +11,6 @@ import { awardTitles } from './titleAward';
 import { emptyTitleCounts, TITLE_DEFS, type TitleCounts } from './stats';
 import { buildStandings } from './standings';
 import { applyAgingAdjustment } from './growthEngine';
-import {
-  generateDraftProspects,
-  generateRound1CpuBids,
-  resolveCpuCompetitions,
-  createLotteryDraw,
-  pickForCpu,
-} from './draft';
-import { generateForeignProspects } from './foreignScout';
-import type { DraftState, ForeignScoutState } from './gameState';
-import type { Position } from './types';
 import type { League, Player, RosterLevel, Team, TeamOrder } from './types';
 import { buildBestOrder } from './orderFactory';
 import {
@@ -164,17 +154,23 @@ function saveSeason(state: GameState): {
     if (!t) continue;
     const stats = state.playerStats[pid] ?? {};
     const prev = careers[pid];
-    const seasons = prev ? [...prev.seasons] : [];
-    // 能力は「その年の開幕時スナップショット」を記録（無ければ現在値でフォールバック）
-    const startAb = state.seasonStartAbilities?.[pid];
+    // 同一年度の重複保存を防止
+    const seasons = prev ? prev.seasons.filter((s) => s.year !== year) : [];
+    // 当年度の確定能力を記録（成長後の実力値を反映）
     seasons.push({
       year,
       teamId: t.teamId,
       teamName: t.teamName,
       stats: structuredClone(stats),
-      abilities: startAb ?? {
-        contact: p.contact, power: p.power, speed: p.speed, defense: p.defense,
-        velocity: p.velocity, breaking: p.breaking, control: p.control, stamina: p.stamina,
+      abilities: {
+        contact: p.contact,
+        power: p.power,
+        speed: p.speed,
+        defense: p.defense,
+        velocity: p.velocity,
+        breaking: p.breaking,
+        control: p.control,
+        stamina: p.stamina,
         age: p.age,
       },
     });
@@ -271,12 +267,26 @@ export function careerTotals(seasons: { stats: { batting?: SeasonBatting; pitchi
 }
 
 /** 選手の主力能力の平均（引退判定用）。野手は表能力4、投手は球速換算＋変化・制球・スタミナ。 */
-function coreAbility(p: Player): number {
+function coreAbility(p: Pick<Player, 'type' | 'contact' | 'power' | 'speed' | 'defense' | 'velocity' | 'breaking' | 'control' | 'stamina'>): number {
   if (p.type === 'BATTER') {
     return (p.contact + p.power + p.speed + p.defense) / 4;
   }
   const velo = Math.max(0, Math.min(110, (p.velocity - 125) * 2.5));
   return (velo + p.breaking + p.control + p.stamina) / 4;
+}
+
+/** ピーク能力からこの割合以上低下したら引退（20%） */
+const PEAK_DECLINE_RETIRE_RATIO = 0.2;
+
+/** 年度別履歴（保存済みの各年度能力）と現在能力から、選手の主力能力のピーク値を求める。 */
+function peakAbility(p: Player, career: PlayerCareer | undefined): number {
+  let peak = coreAbility(p);
+  for (const s of career?.seasons ?? []) {
+    const a = s.abilities;
+    if (!a) continue;
+    peak = Math.max(peak, coreAbility({ type: p.type, ...a }));
+  }
+  return peak;
 }
 
 /** 引退確率（0〜1）。40歳以上は高確率、40歳に近づくベテラン（36〜39歳）も衰えに応じて引退する場合がある。 */
@@ -318,6 +328,7 @@ function meetsHofCriteria(totals: { batting?: SeasonBatting; pitching?: SeasonPi
 function processRetirements(
   teams: Team[],
   state: GameState,
+  careers: Record<string, PlayerCareer> = state.playerCareers,
   rng: () => number = Math.random,
 ): { teams: Team[]; retirements: RetirementEntry[]; hofCandidates: HallOfFamer[] } {
   const retirements: RetirementEntry[] = [];
@@ -328,14 +339,17 @@ function processRetirements(
     const kept: Player[] = [];
     const rosterLevel = { ...team.rosterLevel };
     for (const p of team.players) {
-      const retire = rng() < retireProbability(p);
+      // ピーク能力から20%以上低下した選手は確定で引退。それ以外は年齢・能力に応じた確率判定。
+      const peak = peakAbility(p, careers[p.id]);
+      const declined = peak > 0 && coreAbility(p) <= peak * (1 - PEAK_DECLINE_RETIRE_RATIO);
+      const retire = declined || rng() < retireProbability(p);
       if (!retire) {
         kept.push(p);
         continue;
       }
       // 引退確定
       delete rosterLevel[p.id];
-      const career = state.playerCareers[p.id];
+      const career = careers[p.id];
       const totals = career ? careerTotals(career.seasons) : { batting: undefined, pitching: undefined, years: 0 };
       const qualifies = meetsHofCriteria(totals);
       const isMy = team.id === state.myTeamId;
@@ -508,7 +522,7 @@ export function runOffseason(state: GameState): GameState {
   const agedTeams = applyAgingAdjustment(state.teams);
 
   // --- task7: 引退（全12球団・自動）と殿堂入り候補（マイチームのみ） ---
-  const retired = processRetirements(agedTeams, state);
+  const retired = processRetirements(agedTeams, state, nextCareers);
   report.retirements = retired.retirements;
   report.hofCandidates = retired.hofCandidates;
 
@@ -536,66 +550,6 @@ export function runOffseason(state: GameState): GameState {
     offseasonReport: report,
     draft: null,
   };
-}
-
-/**
- * ドラフト会議を開始する。候補プールを生成し、前年順位の悪い順（全12球団ウェーバー）を作る。
- * offseasonStage を 'DRAFT' にした状態を返す。
- */
-export function startDraft(state: GameState): GameState {
-  const nextYear = state.year + 1;
-  const pool = generateDraftProspects(nextYear);
-
-  // NPB準拠のウェーバー順を作る（2巡目の指名順）。
-  // 各リーグを順位の悪い順（6位→1位）に並べ、同順位は優先リーグを先にして交互に並べる。
-  // 優先権はセ・パ隔年交互（入団年度の偶奇で決定）。例（セ優先）: セ6位→パ6位→セ5位→パ5位→…→セ1位→パ1位。
-  const latest = state.seasonHistory[state.seasonHistory.length - 1];
-  let waiverOrder: string[];
-  if (latest) {
-    const leagueOf = new Map(state.teams.map((t) => [t.id, t.league]));
-    const byWorstRank = (lg: League) =>
-      [...latest.teams]
-        .filter((t) => leagueOf.get(t.teamId) === lg)
-        .sort((a, b) => {
-          // rank（1〜6）の降順＝順位の悪い順。rank 未設定時は勝率の低い順でフォールバック。
-          if (a.rank && b.rank) return b.rank - a.rank;
-          const pa = a.wins + a.losses > 0 ? a.wins / (a.wins + a.losses) : 0;
-          const pb = b.wins + b.losses > 0 ? b.wins / (b.wins + b.losses) : 0;
-          return pa - pb;
-        })
-        .map((t) => t.teamId);
-    const ce = byWorstRank('CENTRAL');
-    const pa = byWorstRank('PACIFIC');
-    // 優先権: 入団年度が偶数ならセ・リーグ先、奇数ならパ・リーグ先（隔年交互）
-    const [first, second] = nextYear % 2 === 0 ? [ce, pa] : [pa, ce];
-    waiverOrder = [];
-    const n = Math.max(first.length, second.length);
-    for (let i = 0; i < n; i++) {
-      if (first[i]) waiverOrder.push(first[i]);
-      if (second[i]) waiverOrder.push(second[i]);
-    }
-  } else {
-    waiverOrder = state.teams.map((t) => t.id);
-  }
-
-  // 1巡目: CPU全球団（マイチーム以外）が同時に1巡目を決定する（最大2球団重複）
-  const cpuTeams = state.teams.filter((t) => t.id !== state.myTeamId);
-  const round1CpuBids = generateRound1CpuBids(cpuTeams, pool);
-
-  const draft: DraftState = {
-    pool,
-    picked: {}, // 1巡目は入札・抽選を経て決定するため初期は空
-    myPicks: [],
-    round: 1,
-    waiverOrder,
-    scouted: {},
-    scoutsLeft: 10,
-    pendingLottery: null,
-    round1CpuBids,
-    done: false,
-  };
-
-  return { ...state, offseasonStage: 'DRAFT', draft };
 }
 
 /**
@@ -636,329 +590,6 @@ export function finalizeOffseason(state: GameState): GameState {
 
   // 翌シーズン開幕（year+1・日程/成績リセット・オーダー再編成）
   return startNextSeason(state, teams);
-}
-
-/**
- * マイチーム確定後に、まだ1巡目が確定していないCPU球団たちだけで
- * 外れ1巡目を全員確定するまで自動で消化する。
- */
-function resolveRemainingCpuRound1(
-  teams: Team[],
-  pool: Player[],
-  initialPicked: Record<string, string>,
-  unresolvedTeamIds: string[],
-): Record<string, string> {
-  const nextPicked = { ...initialPicked };
-  let currentUnresolved = [...unresolvedTeamIds];
-  const teamMap = new Map(teams.map((t) => [t.id, t]));
-
-  while (currentUnresolved.length > 0) {
-    const unresTeams = currentUnresolved.map((id) => teamMap.get(id)!).filter(Boolean);
-    const available = pool.filter((p) => !nextPicked[p.id]);
-    const bids = generateRound1CpuBids(unresTeams, available);
-    const { winners, losers } = resolveCpuCompetitions(bids);
-    for (const [pid, tid] of Object.entries(winners)) {
-      nextPicked[pid] = tid;
-    }
-    currentUnresolved = losers;
-  }
-  return nextPicked;
-}
-
-/**
- * 1巡目指名が全球団確定した後に、第2巡目へ進める。
- * 2巡目のマイチームより前のCPUを先行指名し、マイチームの指名待ち状態にする。
- */
-function advanceToRound2(state: GameState, picked: Record<string, string>, myPicks: string[]): GameState {
-  const draft = state.draft!;
-  const myTeamId = state.myTeamId!;
-  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
-  const nextPicked = { ...picked };
-
-  const cpuPick = (teamId: string) => {
-    if (teamId === myTeamId) return;
-    const team = teamMap.get(teamId);
-    if (!team) return;
-    const available = draft.pool.filter((p) => !nextPicked[p.id]);
-    const pick = pickForCpu(team, available);
-    if (pick) nextPicked[pick.id] = team.id;
-  };
-
-  // 2巡目ウェーバー順でマイより前のCPUを先行指名
-  const order2 = draftOrderForRound(draft.waiverOrder, 2);
-  const myIdx2 = order2.indexOf(myTeamId);
-  for (const teamId of order2.slice(0, myIdx2)) {
-    cpuPick(teamId);
-  }
-
-  return {
-    ...state,
-    draft: {
-      ...draft,
-      picked: nextPicked,
-      myPicks,
-      round: 2,
-      pendingLottery: null,
-      round1CpuBids: undefined,
-      done: false,
-    },
-  };
-}
-
-/**
- * ユーザーが選手を指名したときの処理。
- * - 1巡目:
- *   他球団の事前入札と競合しているか判定。
- *   競合があれば pendingLottery をセットしてくじ引き待ちにする。
- *   競合がなければ即時交渉権獲得し、他球団の競合解決・残りの外れ1巡目を自動完結して2巡目へ。
- * - 2巡目以降:
- *   ウェーバー順でマイチームが指名し、その後他球団の当巡指名をシミュレート。
- */
-export function makeDraftPick(state: GameState, prospectId: string): GameState {
-  const draft = state.draft;
-  const myTeamId = state.myTeamId;
-  if (!draft || !myTeamId || draft.done) return state;
-
-  const prospect = draft.pool.find((p) => p.id === prospectId);
-  if (!prospect || draft.picked[prospectId]) return state;
-
-  // --- 1巡目（および外れ1巡目） ---
-  if (draft.round === 1 && !draft.myPicks.includes(prospectId)) {
-    const cpuBids = { ...(draft.round1CpuBids ?? {}) };
-    const competitors = Object.entries(cpuBids)
-      .filter(([_, pid]) => pid === prospectId)
-      .map(([tid]) => tid);
-
-    if (competitors.length > 0) {
-      // 競合発生！くじ引き演出へ
-      const { winningIndex } = createLotteryDraw(competitors);
-      return {
-        ...state,
-        draft: {
-          ...draft,
-          pendingLottery: {
-            prospectId,
-            competitorTeamIds: competitors,
-            winningIndex,
-            cpuBids,
-          },
-        },
-      };
-    } else {
-      // 単独指名成功！
-      const nextPicked: Record<string, string> = { ...draft.picked, [prospectId]: myTeamId };
-      const nextMyPicks = [...draft.myPicks, prospectId];
-
-      // マイ以外のCPU指名の競合を解決
-      const otherCpuBids = Object.fromEntries(
-        Object.entries(cpuBids).filter(([_, pid]) => pid !== prospectId),
-      );
-      const { winners, losers } = resolveCpuCompetitions(otherCpuBids);
-      for (const [pid, tid] of Object.entries(winners)) {
-        nextPicked[pid] = tid;
-      }
-
-      // 未確定CPU球団たちを外れ1巡目で自動完結
-      const fullyPicked = resolveRemainingCpuRound1(state.teams, draft.pool, nextPicked, losers);
-      return advanceToRound2(state, fullyPicked, nextMyPicks);
-    }
-  }
-
-  // --- 2巡目以降 ---
-  return finalizePickAndAdvanceRound(state, prospectId, myTeamId);
-}
-
-/**
- * くじ引きのタップ結果を確定させる。
- * selectedIndex: ユーザーがタップしたカードのインデックス (0..competitorTeamIds.length)
- */
-export function resolveLotteryDraw(state: GameState, selectedIndex: number): GameState {
-  const draft = state.draft;
-  const myTeamId = state.myTeamId;
-  if (!draft || !myTeamId || !draft.pendingLottery) return state;
-
-  const lot = draft.pendingLottery;
-  const won = selectedIndex === lot.winningIndex;
-
-  return {
-    ...state,
-    draft: {
-      ...draft,
-      pendingLottery: {
-        ...lot,
-        revealedIndex: selectedIndex,
-        won,
-      },
-    },
-  };
-}
-
-/**
- * くじ引き結果確認後の確定処理。
- * - 当選なら獲得確定し、他球団の外れ1巡目を自動完結して第2巡目へ進む。
- * - 外れなら競合CPUが獲得し、外れた球団（マイチーム含む）で改めて外れ1巡目の指名待ちへ。
- */
-export function confirmLotteryOutcome(state: GameState): GameState {
-  const draft = state.draft;
-  const myTeamId = state.myTeamId;
-  if (!draft || !myTeamId || !draft.pendingLottery) return state;
-
-  const { prospectId, competitorTeamIds, won, cpuBids = {} } = draft.pendingLottery;
-  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
-
-  // マイ指名選手以外のCPU同士の競合を解決
-  const otherCpuBids = Object.fromEntries(
-    Object.entries(cpuBids).filter(([_, pid]) => pid !== prospectId),
-  );
-  const { winners, losers } = resolveCpuCompetitions(otherCpuBids);
-  const nextPicked: Record<string, string> = { ...draft.picked };
-  for (const [pid, tid] of Object.entries(winners)) {
-    nextPicked[pid] = tid;
-  }
-  let allUnresolvedCpu = [...losers];
-
-  if (won) {
-    // 交渉権獲得！マイチーム確定
-    nextPicked[prospectId] = myTeamId;
-    const nextMyPicks = [...draft.myPicks, prospectId];
-    // 競合相手のCPUは外れ
-    allUnresolvedCpu.push(...competitorTeamIds);
-
-    // 未確定CPU球団たちを外れ1巡目で自動完結し、第2巡目へ進む
-    const fullyPicked = resolveRemainingCpuRound1(state.teams, draft.pool, nextPicked, allUnresolvedCpu);
-    return advanceToRound2(state, fullyPicked, nextMyPicks);
-  } else {
-    // ハズレ: 競合相手のCPUの中から1球団が獲得
-    const winningCpuTeamId = competitorTeamIds[Math.floor(Math.random() * competitorTeamIds.length)];
-    nextPicked[prospectId] = winningCpuTeamId;
-    // 競合相手で外れたCPU
-    allUnresolvedCpu.push(...competitorTeamIds.filter((id) => id !== winningCpuTeamId));
-
-    // 外れたCPU球団たちで外れ1巡目指名を同時に決定（最大2球団重複）
-    const remainingPool = draft.pool.filter((p) => !nextPicked[p.id]);
-    const unresolvedTeams = allUnresolvedCpu.map((id) => teamMap.get(id)!).filter(Boolean);
-    const nextRound1CpuBids = generateRound1CpuBids(unresolvedTeams, remainingPool);
-
-    return {
-      ...state,
-      draft: {
-        ...draft,
-        picked: nextPicked,
-        pendingLottery: null,
-        round1CpuBids: nextRound1CpuBids,
-      },
-    };
-  }
-}
-
-/**
- * その巡の指名順（teamId 配列）を返す。NPB準拠のスネーク方式:
- * 2巡目はウェーバー順（waiverOrder＝最下位から）、3巡目は逆順、以降交互に折り返す。
- * （waiverOrder は「最下位先・優先リーグ交互」で並んでいる前提）
- * 1巡目は入札制で順序は結果に影響しないため waiverOrder をそのまま返す。
- */
-function draftOrderForRound(waiverOrder: string[], round: number): string[] {
-  if (round === 1) return waiverOrder;
-  // 2巡目=ウェーバー順（偶数巡）、3巡目=逆順（奇数巡）、以降折り返し
-  return round % 2 === 0 ? waiverOrder : [...waiverOrder].reverse();
-}
-
-/**
- * 指名完了後の確定とCPU進行。
- *
- * ウェーバー制を正しく機能させるため、マイチームもウェーバー順（スネーク）の自分の位置で指名する。
- * - 1巡目のCPU指名は startDraft 時に事前処理済みのため、ここでは何もしない。
- * - 2巡目以降: マイより前のCPUは前巡末で「先行指名」済み。当巡はマイより後ろのCPUのみ指名。
- *   その後、次巡のマイより前のCPUを先行指名して再びマイの指名待ちにする。
- */
-function finalizePickAndAdvanceRound(state: GameState, prospectId: string, myTeamId: string): GameState {
-  const draft = state.draft!;
-  const nextPicked = { ...draft.picked, [prospectId]: myTeamId };
-  const nextMyPicks = [...draft.myPicks, prospectId];
-  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
-
-  const cpuPick = (teamId: string) => {
-    if (teamId === myTeamId) return;
-    const team = teamMap.get(teamId);
-    if (!team) return;
-    const available = draft.pool.filter((p) => !nextPicked[p.id]);
-    const pick = pickForCpu(team, available);
-    if (pick) nextPicked[pick.id] = team.id;
-  };
-
-  const round = draft.round;
-  const order = draftOrderForRound(draft.waiverOrder, round);
-
-  // 1巡目: CPU指名はstartDraft時に事前処理済み。マイ指名後の追加CPU処理は不要。
-  // 2巡目以降: マイより後ろのCPUを当巡で指名させる。
-  if (round !== 1) {
-    const myIdx = order.indexOf(myTeamId);
-    for (const teamId of order.slice(myIdx + 1)) cpuPick(teamId);
-  }
-
-  const nextRound = round + 1;
-  const isDone = nextRound > 6 || nextMyPicks.length >= 6;
-
-  if (!isDone) {
-    // 次巡のマイより前のCPUを先行指名し、マイが残ったプールから指名できるようにする
-    // (1巡目→2巡目の先行分もここで処理)
-    const orderNext = draftOrderForRound(draft.waiverOrder, nextRound);
-    const myIdxNext = orderNext.indexOf(myTeamId);
-    for (const teamId of orderNext.slice(0, myIdxNext)) cpuPick(teamId);
-  }
-
-  return {
-    ...state,
-    draft: {
-      ...draft,
-      picked: nextPicked,
-      myPicks: nextMyPicks,
-      round: nextRound,
-      pendingLottery: null,
-      done: isDone,
-    },
-  };
-}
-
-/**
- * ユーザーが「指名終了」を押したときの処理。
- * マイチームの指名を終了し、残りの巡をCPUだけで高速消化してドラフトを完了状態にする。
- */
-export function finishMyTeamDraft(state: GameState): GameState {
-  const draft = state.draft;
-  const myTeamId = state.myTeamId;
-  if (!draft || !myTeamId || draft.done) return state;
-
-  const nextPicked = { ...draft.picked };
-  const teamMap = new Map(state.teams.map((t) => [t.id, t]));
-
-  const cpuPick = (teamId: string) => {
-    if (teamId === myTeamId) return;
-    const team = teamMap.get(teamId);
-    if (!team) return;
-    const available = draft.pool.filter((p) => !nextPicked[p.id]);
-    const pick = pickForCpu(team, available);
-    if (pick) nextPicked[pick.id] = team.id;
-  };
-
-  // 残りの巡を、各巡ウェーバー順（スネーク）でCPUだけ指名して消化。
-  // 現在の巡（2巡目以降）はマイより前のCPUが既に先行指名済みなので、マイ以降だけを埋める。
-  for (let r = draft.round; r <= 6; r++) {
-    const order = draftOrderForRound(draft.waiverOrder, r);
-    const skipBeforeMy = r === draft.round && r > 1;
-    const start = skipBeforeMy ? order.indexOf(myTeamId) + 1 : 0;
-    for (const teamId of order.slice(start)) cpuPick(teamId);
-  }
-
-  return {
-    ...state,
-    draft: {
-      ...draft,
-      picked: nextPicked,
-      myTeamFinished: true,
-      done: true,
-    },
-  };
 }
 
 /**
@@ -1003,125 +634,4 @@ export function releasePlayer(state: GameState, playerId: string): GameState {
     teams: nextTeams,
     orders: nextOrders,
   };
-}
-
-/**
- * ドラフト候補選手をスカウト調査する。
- * 1回のドラフト会議につき最大5回まで使用可能。
- * 隠しパラメータである「努力値」または「才能値」のどちらか一方をランダムに調査してUI表示可能にする。
- */
-export function scoutDraftProspect(state: GameState, prospectId: string): GameState {
-  const draft = state.draft;
-  if (!draft || draft.done || draft.scoutsLeft <= 0) return state;
-  // 既にスカウト済みの場合は消費しない
-  if (draft.scouted[prospectId]) return state;
-
-  const target = draft.pool.find((p) => p.id === prospectId);
-  if (!target) return state;
-
-  // 才能か努力のいずれかをランダム（50%）で開示
-  const which: 'talent' | 'effort' = Math.random() < 0.5 ? 'talent' : 'effort';
-
-  return {
-    ...state,
-    draft: {
-      ...draft,
-      scoutsLeft: draft.scoutsLeft - 1,
-      scouted: {
-        ...draft.scouted,
-        [prospectId]: which,
-      },
-    },
-  };
-}
-
-
-
-// ============================================================
-// 外国人スカウト
-// ============================================================
-
-/** 外国人保有上限 */
-const FOREIGN_LIMIT = 5;
-/** 保有選手の上限（50人枠） */
-const ROSTER_LIMIT = 50;
-
-/** マイチームの現在の枠使用状況（ドラフト・スカウトで追加予定分も含む） */
-function rosterUsage(state: GameState): { total: number; foreigners: number } {
-  const myTeamId = state.myTeamId;
-  const myTeam = state.teams.find((t) => t.id === myTeamId);
-  if (!myTeam) return { total: 0, foreigners: 0 };
-  const draftCount = state.draft?.myPicks.length ?? 0;
-  const signed = state.foreignScout?.signed ?? [];
-  const total = myTeam.players.length + draftCount + signed.length;
-  const foreigners = myTeam.players.filter((p) => p.is_foreign).length + signed.length;
-  return { total, foreigners };
-}
-
-/** 外国人をあと1名獲得できるか */
-export function canSignForeign(state: GameState): boolean {
-  const { total, foreigners } = rosterUsage(state);
-  return total < ROSTER_LIMIT && foreigners < FOREIGN_LIMIT;
-}
-
-/** 外国人スカウトを開始する（ドラフト完了後）。SCOUT段階へ遷移。 */
-export function startForeignScout(state: GameState): GameState {
-  const positions: Position[] = ['P', 'C', '1B', '2B', '3B', 'SS', 'OF'];
-  const pool: Partial<Record<Position, Player[]>> = {};
-  for (const pos of positions) {
-    pool[pos] = generateForeignProspects(pos, state.year + 1, 5);
-  }
-  const foreignScout: ForeignScoutState = {
-    position: null,
-    pool,
-    offered: [],
-    signed: [],
-    done: false,
-  };
-  return { ...state, offseasonStage: 'SCOUT', foreignScout };
-}
-
-/** 指定ポジションの外国人候補5名を提示する。ボタン再押下での再抽選は行わずプールから取得する。 */
-export function offerForeignProspects(state: GameState, position: Position): GameState {
-  const fs = state.foreignScout;
-  if (!fs || fs.done) return state;
-  const pool = { ...(fs.pool ?? {}) };
-  if (!pool[position]) {
-    pool[position] = generateForeignProspects(position, state.year + 1, 5);
-  }
-  const offered = pool[position] ?? [];
-  return { ...state, foreignScout: { ...fs, pool, position, offered } };
-}
-
-/** 提示中の候補から1名を獲得する（枠に空きがある場合のみ）。獲得した選手は候補プールから除外される。 */
-export function signForeign(state: GameState, prospectId: string): GameState {
-  const fs = state.foreignScout;
-  if (!fs || fs.done) return state;
-  if (!canSignForeign(state)) return state;
-  const target = fs.offered.find((p) => p.id === prospectId);
-  if (!target) return state;
-
-  const pos = fs.position;
-  const pool = { ...(fs.pool ?? {}) };
-  if (pos && pool[pos]) {
-    pool[pos] = pool[pos]!.filter((p) => p.id !== prospectId);
-  }
-
-  return {
-    ...state,
-    foreignScout: {
-      ...fs,
-      pool,
-      signed: [...fs.signed, target],
-      offered: [], // 獲得後は提示をクリア（再度ポジション選択）
-      position: null,
-    },
-  };
-}
-
-/** 外国人スカウトを終了する。 */
-export function finishForeignScout(state: GameState): GameState {
-  const fs = state.foreignScout;
-  if (!fs) return state;
-  return { ...state, foreignScout: { ...fs, done: true, offered: [], position: null } };
 }

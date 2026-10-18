@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { PitcherAssignment, Player, Team, TeamOrder } from '../domain/types';
 import type { InjuryEntry } from '../domain/gameState';
-import { pitcherRoleLabel } from '../domain/orderLabels';
 import { rankColor, rankFromValue, rankFromVelocity } from '../domain/rank';
 import { cleanTeamOrder } from '../domain/orderFactory';
 
@@ -13,13 +12,35 @@ interface Props {
   onSelect?: (player: Player) => void;
 }
 
+interface SlotDef {
+  role: 'STARTER' | 'CLOSER' | 'SETUP' | 'MIDDLE';
+  label: string;
+  rotationOrder?: number;
+}
+
+// 一軍規定の14スロット（先発6, 抑え1, セット1, 中継ぎ6）
+const FIRST_TEAM_SLOTS: SlotDef[] = [
+  { role: 'STARTER', label: '先発1', rotationOrder: 1 },
+  { role: 'STARTER', label: '先発2', rotationOrder: 2 },
+  { role: 'STARTER', label: '先発3', rotationOrder: 3 },
+  { role: 'STARTER', label: '先発4', rotationOrder: 4 },
+  { role: 'STARTER', label: '先発5', rotationOrder: 5 },
+  { role: 'STARTER', label: '先発6', rotationOrder: 6 },
+  { role: 'CLOSER', label: '抑え' },
+  { role: 'SETUP', label: 'セット' },
+  { role: 'MIDDLE', label: '中1' },
+  { role: 'MIDDLE', label: '中2' },
+  { role: 'MIDDLE', label: '中3' },
+  { role: 'MIDDLE', label: '中4' },
+  { role: 'MIDDLE', label: '中5' },
+  { role: 'MIDDLE', label: '中6' },
+];
+
 type SlotKind = 'STAFF' | 'FARM';
 interface SlotRef {
   kind: SlotKind;
   index: number;
 }
-
-const ROLE_SORT: Record<string, number> = { STARTER: 0, SETUP: 1, CLOSER: 2, MIDDLE: 3 };
 
 const keyOf = (ref: SlotRef) => `${ref.kind}:${ref.index}`;
 const parseKey = (key: string): SlotRef => {
@@ -27,7 +48,7 @@ const parseKey = (key: string): SlotRef => {
   return { kind: kind as SlotKind, index: Number(index) };
 };
 
-/** 投手編成: ドラッグ＆ドロップおよびタップ選択で任意の選手同士を自由に入れ替え可能 */
+/** 投手編成: 14枠の役割スロット制で、二軍との入れ替え・空き枠補充を安全に実現 */
 export function PitcherFormation({ team, order, onChange, injuries, onSelect }: Props) {
   const [selected, setSelected] = useState<SlotRef | null>(null);
   const dragSrcKeyRef = useRef<string | null>(null);
@@ -38,45 +59,134 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
     [team],
   );
 
-  // 一軍投手を役割順（先発→セットアッパー→抑え→中継ぎ）に並べた表示スロット
-  const staff = useMemo(() => {
-    return [...order.pitchers].sort((a, b) => {
-      const r = (ROLE_SORT[a.role] ?? 9) - (ROLE_SORT[b.role] ?? 9);
-      if (r !== 0) return r;
-      return (a.rotationOrder ?? 0) - (b.rotationOrder ?? 0);
+  // 14枠の一軍スロットへ、order.pitchers を過不足なくマッピング
+  const staffSlots = useMemo(() => {
+    const slots: (string | undefined)[] = new Array(FIRST_TEAM_SLOTS.length).fill(undefined);
+    const assignedPitchers = [...order.pitchers].filter((p) => playerMap.has(p.playerId));
+
+    // 1) 先発 (STARTER) の割り当て
+    const starters = assignedPitchers
+      .filter((p) => p.role === 'STARTER')
+      .sort((a, b) => (a.rotationOrder ?? 0) - (b.rotationOrder ?? 0));
+    starters.slice(0, 6).forEach((p, idx) => {
+      slots[idx] = p.playerId;
     });
-  }, [order.pitchers]);
 
-  const getId = (ref: SlotRef): string | undefined =>
-    ref.kind === 'STAFF' ? staff[ref.index]?.playerId : order.farmPitchers[ref.index];
+    // 2) 抑え (CLOSER)
+    const closer = assignedPitchers.find((p) => p.role === 'CLOSER');
+    if (closer) slots[6] = closer.playerId;
 
+    // 3) セットアッパー (SETUP)
+    const setup = assignedPitchers.find((p) => p.role === 'SETUP');
+    if (setup) slots[7] = setup.playerId;
+
+    // 4) 中継ぎ (MIDDLE)
+    const middles = assignedPitchers.filter((p) => p.role === 'MIDDLE');
+    middles.slice(0, 6).forEach((p, idx) => {
+      slots[8 + idx] = p.playerId;
+    });
+
+    // 5) もし枠外の選手がいれば空きスロットへ埋める
+    const alreadyAssigned = new Set(slots.filter(Boolean) as string[]);
+    const unassigned = assignedPitchers.filter((p) => !alreadyAssigned.has(p.playerId));
+    for (const p of unassigned) {
+      const emptyIdx = slots.indexOf(undefined);
+      if (emptyIdx >= 0) {
+        slots[emptyIdx] = p.playerId;
+      }
+    }
+
+    return slots;
+  }, [order.pitchers, playerMap]);
+
+  // 一軍に使われている投手IDのセット
+  const usedInStaff = useMemo(() => new Set(staffSlots.filter(Boolean) as string[]), [staffSlots]);
+
+  // 二軍投手リスト: 一軍に使われている選手を重複なく除外し、在籍投手で漏れを補完
+  const farmPitcherIds = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+    for (const id of order.farmPitchers || []) {
+      if (id && playerMap.has(id) && !usedInStaff.has(id) && !seen.has(id)) {
+        seen.add(id);
+        list.push(id);
+      }
+    }
+    // 未登録の在籍投手（IL以外）を末尾に追加
+    for (const p of team.players) {
+      if (p.type === 'PITCHER' && team.rosterLevel[p.id] !== 'IL' && !usedInStaff.has(p.id) && !seen.has(p.id)) {
+        seen.add(p.id);
+        list.push(p.id);
+      }
+    }
+    return list;
+  }, [order.farmPitchers, playerMap, usedInStaff, team]);
+
+  const getId = (ref: SlotRef): string | undefined => {
+    return ref.kind === 'STAFF' ? staffSlots[ref.index] : farmPitcherIds[ref.index];
+  };
+
+  /** スロット同士、または一軍と二軍の入れ替え・補充を実行 */
   const trySwap = (a: SlotRef, b: SlotRef) => {
     if (a.kind === b.kind && a.index === b.index) return;
     const idA = getId(a);
     const idB = getId(b);
-    if (!idA || !idB) return;
+    // 両方空枠なら何もしない
+    if (!idA && !idB) return;
 
-    // 役割はスロットに固定し、選手（playerId）だけを交換する（任意の投手同士で制限なし）
-    const newStaff: PitcherAssignment[] = staff.map((s) => ({ ...s }));
-    const farm = [...order.farmPitchers];
+    const nextStaffSlots = [...staffSlots];
+    const nextFarm = [...farmPitcherIds];
 
-    const setId = (ref: SlotRef, id: string) => {
-      if (ref.kind === 'STAFF') {
-        newStaff[ref.index] = { ...newStaff[ref.index], playerId: id };
-      } else {
-        farm[ref.index] = id;
+    if (a.kind === 'STAFF' && b.kind === 'STAFF') {
+      // 一軍スロット同士の交換（空き枠への移動も含む）
+      nextStaffSlots[a.index] = idB;
+      nextStaffSlots[b.index] = idA;
+    } else if (a.kind === 'FARM' && b.kind === 'FARM') {
+      // 二軍同士の並び順交換
+      if (idA && idB) {
+        nextFarm[a.index] = idB;
+        nextFarm[b.index] = idA;
       }
-    };
+    } else {
+      // 一軍と二軍の入れ替え（昇格・降格・空き枠補充）
+      const staffRef = a.kind === 'STAFF' ? a : b;
+      const farmRef = a.kind === 'FARM' ? a : b;
+      const staffId = staffSlots[staffRef.index];
+      const farmId = farmPitcherIds[farmRef.index];
 
-    setId(a, idB);
-    setId(b, idA);
+      if (staffId && farmId) {
+        // 通常の1対1交換
+        nextStaffSlots[staffRef.index] = farmId;
+        nextFarm[farmRef.index] = staffId;
+      } else if (!staffId && farmId) {
+        // 空き枠への二軍からの昇格
+        nextStaffSlots[staffRef.index] = farmId;
+        nextFarm.splice(farmRef.index, 1);
+      } else if (staffId && !farmId) {
+        // 一軍から二軍への降格（空き枠化）
+        nextStaffSlots[staffRef.index] = undefined;
+        nextFarm.push(staffId);
+      }
+    }
 
-    onChange(cleanTeamOrder({ ...order, pitchers: newStaff, farmPitchers: farm }, team));
+    // 14スロットから TeamOrder['pitchers'] 配列を構築
+    const nextPitchers: PitcherAssignment[] = [];
+    nextStaffSlots.forEach((pid, idx) => {
+      if (!pid) return;
+      const slotDef = FIRST_TEAM_SLOTS[idx];
+      const entry: PitcherAssignment = { playerId: pid, role: slotDef.role };
+      if (slotDef.rotationOrder) {
+        entry.rotationOrder = slotDef.rotationOrder;
+      }
+      nextPitchers.push(entry);
+    });
+
+    onChange(cleanTeamOrder({ ...order, pitchers: nextPitchers, farmPitchers: nextFarm }, team));
     setSelected(null);
   };
 
-  const handleSlotClick = (ref: SlotRef, p: Player) => {
-    onSelect?.(p);
+  const handleSlotClick = (ref: SlotRef, p?: Player) => {
+    if (p) onSelect?.(p);
 
     if (!selected) {
       setSelected(ref);
@@ -92,16 +202,89 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
     setSelected(null);
   };
 
-  // 同一投手が画面上に2箇所表示されるのを防ぐガードSet
-  const seenPitcherIds = new Set<string>();
+  const renderStaffRow = (index: number) => {
+    const slotDef = FIRST_TEAM_SLOTS[index];
+    const id = staffSlots[index];
+    const p = id ? playerMap.get(id) : undefined;
+    const ref: SlotRef = { kind: 'STAFF', index };
+    const k = keyOf(ref);
+    const isSelected = selected ? keyOf(selected) === k : false;
 
-  const renderRow = (ref: SlotRef, roleLabel: string) => {
-    const id = getId(ref);
+    if (!p) {
+      // 空き枠スロット
+      return (
+        <div
+          key={k}
+          className={`bf-row empty${isSelected ? ' selected' : ''}`}
+          onClick={() => handleSlotClick(ref)}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const srcKey = dragSrcKeyRef.current || e.dataTransfer.getData('text/plain');
+            dragSrcKeyRef.current = null;
+            document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+            if (srcKey && srcKey !== k) trySwap(parseKey(srcKey), ref);
+          }}
+        >
+          <span className="bf-pos">{slotDef.label}</span>
+          <span className="bf-name empty-slot">（空き枠・タップで補充）</span>
+          <span className="bf-ranks"></span>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={k}
+        className={`bf-row${isSelected ? ' selected' : ''}`}
+        onClick={() => handleSlotClick(ref, p)}
+        draggable
+        onDragStart={(e) => {
+          dragSrcKeyRef.current = k;
+          try {
+            e.dataTransfer.setData('text/plain', k);
+            e.dataTransfer.effectAllowed = 'move';
+          } catch {}
+          e.currentTarget.classList.add('dragging');
+        }}
+        onDragEnd={(e) => {
+          dragSrcKeyRef.current = null;
+          e.currentTarget.classList.remove('dragging');
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+        }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          if (dragSrcKeyRef.current && dragSrcKeyRef.current !== k) e.currentTarget.classList.add('over');
+        }}
+        onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('over'); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.currentTarget.classList.remove('over');
+          const srcKey = dragSrcKeyRef.current || e.dataTransfer.getData('text/plain');
+          dragSrcKeyRef.current = null;
+          document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
+          if (srcKey && srcKey !== k) trySwap(parseKey(srcKey), ref);
+        }}
+      >
+        <span className="bf-pos">{slotDef.label}</span>
+        <span className="bf-name">{p.name}</span>
+        <span className="bf-ranks">
+          <Rk v={p.velocity} isVelocity />
+          <Rk v={p.control} />
+          <Rk v={p.breaking} />
+          <Rk v={p.stamina} />
+        </span>
+      </div>
+    );
+  };
+
+  const renderFarmRow = (index: number) => {
+    const id = farmPitcherIds[index];
     const p = id ? playerMap.get(id) : undefined;
     if (!p) return null;
-    if (seenPitcherIds.has(p.id)) return null;
-    seenPitcherIds.add(p.id);
 
+    const ref: SlotRef = { kind: 'FARM', index };
     const k = keyOf(ref);
     const isSelected = selected ? keyOf(selected) === k : false;
 
@@ -116,9 +299,7 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
           try {
             e.dataTransfer.setData('text/plain', k);
             e.dataTransfer.effectAllowed = 'move';
-          } catch {
-            // fallback
-          }
+          } catch {}
           e.currentTarget.classList.add('dragging');
         }}
         onDragEnd={(e) => {
@@ -126,36 +307,22 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
           e.currentTarget.classList.remove('dragging');
           document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
         }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = 'move';
-        }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
         onDragEnter={(e) => {
           e.preventDefault();
-          e.stopPropagation();
-          if (dragSrcKeyRef.current && dragSrcKeyRef.current !== k) {
-            e.currentTarget.classList.add('over');
-          }
+          if (dragSrcKeyRef.current && dragSrcKeyRef.current !== k) e.currentTarget.classList.add('over');
         }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.currentTarget.classList.remove('over');
-        }}
+        onDragLeave={(e) => { e.preventDefault(); e.currentTarget.classList.remove('over'); }}
         onDrop={(e) => {
           e.preventDefault();
-          e.stopPropagation();
           e.currentTarget.classList.remove('over');
           const srcKey = dragSrcKeyRef.current || e.dataTransfer.getData('text/plain');
           dragSrcKeyRef.current = null;
           document.querySelectorAll('.bf-row').forEach((el) => el.classList.remove('over', 'dragging'));
-          if (srcKey && srcKey !== k) {
-            trySwap(parseKey(srcKey), ref);
-          }
+          if (srcKey && srcKey !== k) trySwap(parseKey(srcKey), ref);
         }}
       >
-        <span className="bf-pos">{roleLabel}</span>
+        <span className="bf-pos">P</span>
         <span className="bf-name">{p.name}</span>
         <span className="bf-ranks">
           <Rk v={p.velocity} isVelocity />
@@ -167,32 +334,28 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
     );
   };
 
-  // staff配列上のindexを保持しつつ役割グループに分ける
-  const withIdx = staff.map((a, i) => ({ a, i }));
-  const starters = withIdx.filter((x) => x.a.role === 'STARTER');
-  const winning = withIdx.filter((x) => x.a.role === 'SETUP' || x.a.role === 'CLOSER'); // 勝ちパ
-  const middle = withIdx.filter((x) => x.a.role === 'MIDDLE');
-
   return (
     <div className="bf-wrap">
+      {/* 左: 一軍 (14枠) */}
       <div className="bf-col">
         <div className="bf-col-title">一軍</div>
 
-        <div className="bf-sub">先発</div>
-        {starters.map((x, n) => renderRow({ kind: 'STAFF', index: x.i }, `先発${n + 1}`))}
+        <div className="bf-sub">先発 (6枠)</div>
+        {[0, 1, 2, 3, 4, 5].map((idx) => renderStaffRow(idx))}
 
-        <div className="bf-sub">勝ちパ</div>
-        {winning.map((x) => renderRow({ kind: 'STAFF', index: x.i }, pitcherRoleLabel(x.a.role)))}
+        <div className="bf-sub">勝ちパ (2枠)</div>
+        {[6, 7].map((idx) => renderStaffRow(idx))}
 
         <div className="bf-sub">
-          中継ぎ<span className="bf-note">上=僅差 / 下=敗戦処理</span>
+          中継ぎ (6枠)<span className="bf-note">上=僅差 / 下=敗戦処理</span>
         </div>
-        {middle.map((x, n) => renderRow({ kind: 'STAFF', index: x.i }, `中${n + 1}`))}
+        {[8, 9, 10, 11, 12, 13].map((idx) => renderStaffRow(idx))}
       </div>
 
+      {/* 右: 二軍 */}
       <div className="bf-col">
-        <div className="bf-col-title">二軍</div>
-        {order.farmPitchers.map((_, i) => renderRow({ kind: 'FARM', index: i }, 'P'))}
+        <div className="bf-col-title">二軍 ({farmPitcherIds.length})</div>
+        {farmPitcherIds.map((_, i) => renderFarmRow(i))}
 
         {/* 故障者リスト（移動不可） */}
         {injuredPitchers.length > 0 && (

@@ -8,7 +8,8 @@ import type { PlayerSeasonStats } from '../match/matchStats';
 import type { PostseasonState } from '../match/postseason';
 import type { TitleCounts, HallOfFamer } from './stats';
 import type { OffseasonReport } from './offseason';
-import { backfillMissingCareers } from './careerGenerator';
+import { backfillMissingCareers, sanitizePlayerCareers, generatePlayerPastCareer } from './careerGenerator';
+import { generateUniquePlayerId } from './playerFactory';
 
 const STORAGE_KEY = 'pennant-game-state';
 const SAVED_AT_KEY = 'pennant-game-state-saved-at';
@@ -337,6 +338,147 @@ export function startNextSeason(prev: GameState, teamsIn: Team[]): GameState {
   };
 }
 
+/**
+ * セーブデータ読み込み時の整合性検証と自動修復を行う。
+ * - 選手IDの重複検出と再採番（ドラフト・外国人等のID重複による記録混同を完全防止）
+ * - オーダーの整合性修復
+ * - playerCareers の欠損バックフィルおよび異常データ（異常な年齢・球速・記録混入）のサニタイズ
+ * - seasonStartAbilities の欠損補完
+ */
+export function sanitizeGameState(state: GameState): GameState {
+  if (!state || !Array.isArray(state.teams) || state.teams.length === 0) {
+    return state;
+  }
+
+  // 1. 全球団の選手IDの重複検出と再採番
+  const seenIds = new Set<string>();
+
+  for (const team of state.teams) {
+    for (const player of team.players) {
+      if (seenIds.has(player.id)) {
+        const oldId = player.id;
+        const newId = generateUniquePlayerId();
+        player.id = newId;
+
+        // team.rosterLevel の更新
+        if (team.rosterLevel && team.rosterLevel[oldId] && !team.rosterLevel[newId]) {
+          team.rosterLevel[newId] = team.rosterLevel[oldId];
+        }
+
+        // 過去年度別成績の個別生成（他人の記録との混同を防止）
+        if (!state.playerCareers) state.playerCareers = {};
+        if (player.debutYear < state.year) {
+          state.playerCareers[newId] = generatePlayerPastCareer(player, state.year, team.id, team.nickName);
+        } else {
+          state.playerCareers[newId] = { playerId: newId, seasons: [] };
+        }
+
+        // 成績・能力スナップショットの個別付与
+        if (state.playerStats) {
+          state.playerStats[newId] = {};
+        }
+        if (state.seasonStartAbilities) {
+          state.seasonStartAbilities[newId] = {
+            contact: player.contact,
+            power: player.power,
+            speed: player.speed,
+            defense: player.defense,
+            velocity: player.velocity,
+            breaking: player.breaking,
+            control: player.control,
+            stamina: player.stamina,
+            age: player.age,
+          };
+        }
+      } else {
+        seenIds.add(player.id);
+      }
+    }
+  }
+
+  // ドラフト候補・外国人候補プール内のID重複も防止
+  if (state.draft?.pool) {
+    for (const p of state.draft.pool) {
+      if (seenIds.has(p.id)) {
+        p.id = generateUniquePlayerId();
+      }
+      seenIds.add(p.id);
+    }
+  }
+  if (state.foreignScout?.pool) {
+    for (const list of Object.values(state.foreignScout.pool)) {
+      if (Array.isArray(list)) {
+        for (const p of list) {
+          if (seenIds.has(p.id)) {
+            p.id = generateUniquePlayerId();
+          }
+          seenIds.add(p.id);
+        }
+      }
+    }
+  }
+
+  // 2. orders の整合性チェック＆補正
+  if (!state.orders) {
+    state.orders = buildInitialOrders(state.teams);
+  } else {
+    for (const team of state.teams) {
+      const order = state.orders[team.id];
+      if (!order) {
+        state.orders[team.id] = buildBestOrder(team);
+        continue;
+      }
+      const validPids = new Set(team.players.map((p) => p.id));
+      const hasInvalid =
+        !Array.isArray(order.lineup) ||
+        !Array.isArray(order.pitchers) ||
+        order.lineup.length !== 9 ||
+        order.pitchers.length !== 14 ||
+        order.lineup.some((s) => !validPids.has(s.playerId)) ||
+        order.pitchers.some((p) => !validPids.has(p.playerId)) ||
+        (Array.isArray(order.benchBatters) && order.benchBatters.some((id) => !validPids.has(id))) ||
+        (Array.isArray(order.farmBatters) && order.farmBatters.some((id) => !validPids.has(id))) ||
+        (Array.isArray(order.farmPitchers) && order.farmPitchers.some((id) => !validPids.has(id)));
+
+      if (hasInvalid) {
+        state.orders[team.id] = buildBestOrder(team);
+      }
+    }
+  }
+
+  // 3. playerCareers のバックフィル＆データサニタイズ（異常値・重複・混入の修復）
+  if (!state.playerCareers) {
+    state.playerCareers = {};
+  }
+  state.playerCareers = backfillMissingCareers(state.teams, state.playerCareers, state.year);
+  state.playerCareers = sanitizePlayerCareers(state.teams, state.playerCareers, state.year);
+
+  // 4. seasonStartAbilities の欠損補完
+  if (!state.seasonStartAbilities) {
+    state.seasonStartAbilities = snapshotAbilities(state.teams);
+  } else {
+    for (const team of state.teams) {
+      for (const p of team.players) {
+        if (!state.seasonStartAbilities[p.id]) {
+          state.seasonStartAbilities[p.id] = {
+            contact: p.contact,
+            power: p.power,
+            speed: p.speed,
+            defense: p.defense,
+            velocity: p.velocity,
+            breaking: p.breaking,
+            control: p.control,
+            stamina: p.stamina,
+            age: p.age,
+          };
+        }
+      }
+    }
+  }
+
+  return state;
+}
+
 /** localStorage から読み込む。無効/未保存なら null */
 export function loadGameState(): GameState | null {
   try {
@@ -345,16 +487,7 @@ export function loadGameState(): GameState | null {
     const parsed = JSON.parse(raw) as GameState;
     if (parsed.version !== SCHEMA_VERSION) return null;
     if (!Array.isArray(parsed.teams) || parsed.teams.length === 0) return null;
-    // ordersが欠損していれば補完（保険）
-    if (!parsed.orders) {
-      parsed.orders = buildInitialOrders(parsed.teams);
-    }
-    // playerCareers が欠損または既存選手に過去記録が無ければバックフィル
-    if (!parsed.playerCareers) {
-      parsed.playerCareers = {};
-    }
-    parsed.playerCareers = backfillMissingCareers(parsed.teams, parsed.playerCareers, parsed.year);
-    return parsed;
+    return sanitizeGameState(parsed);
   } catch {
     return null;
   }

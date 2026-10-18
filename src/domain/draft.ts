@@ -45,37 +45,20 @@ export function generateDraftProspects(nextYear: number): Player[] {
   for (const { position, count } of POOL_COUNTS) {
     for (let i = 0; i < count; i++) {
       const age = prospectAge();
+
+      // 18歳高校生基準の初期能力ベース (18〜46のランダム)
+      const base18 = 18 + Math.random() * 28;
+      // 年齢増加分（大卒22歳、社会人20/24歳、独立25-27歳等）
+      const extraYears = Math.max(0, age - 18);
+      const calculatedMean = Math.min(62, Math.round(base18 + extraYears * 1.5));
+
       const p = generatePlayer({
         type: position === 'P' ? 'PITCHER' : 'BATTER',
         position: position === 'P' ? undefined : position,
         age,
         debutYear: nextYear,
+        baseMean: calculatedMean,
       });
-
-      // 18歳高校生基準の初期能力ベース (15〜55のランダム)
-      const base18 = 15 + Math.random() * 40; // 15〜55
-      // 年齢増加分（年数）
-      const extraYears = Math.max(0, age - 18);
-      // 才能・努力に応じた年あたり成長加算（0.8〜2.5pt/年程度）
-      const growthRate = 0.5 + ((p.talent + p.effort) / 198) * 2.2;
-      const calculatedMean = Math.min(65, Math.round(base18 + extraYears * growthRate));
-
-      const clampStat = (val: number) => Math.max(15, Math.min(65, Math.round(val)));
-
-      // 表能力を再設定
-      if (p.type === 'PITCHER') {
-        // 球速: 15〜65のランク値に対応させると 126km/h 〜 152km/h
-        const velo = Math.max(126, Math.min(154, Math.round(124 + calculatedMean * 0.45 + (Math.random() * 6 - 3))));
-        p.velocity = velo;
-        p.breaking = clampStat(calculatedMean + (Math.random() * 12 - 6));
-        p.control = clampStat(calculatedMean + (Math.random() * 12 - 6));
-        p.stamina = clampStat(calculatedMean + (Math.random() * 12 - 6));
-      } else {
-        p.contact = clampStat(calculatedMean + (Math.random() * 12 - 6));
-        p.power = clampStat(calculatedMean + (Math.random() * 12 - 6));
-        p.speed = clampStat(calculatedMean + (Math.random() * 12 - 6));
-        p.defense = clampStat(calculatedMean + (Math.random() * 12 - 6));
-      }
 
       pool.push(p);
     }

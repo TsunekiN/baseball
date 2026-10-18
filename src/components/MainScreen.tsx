@@ -12,7 +12,7 @@ import { calcTeamStrength } from '../domain/teamStrength';
 import { sanitizeOrder } from '../domain/orderFactory';
 import { rankFromValue } from '../domain/rank';
 import { RankBadge } from './RankBadge';
-import { StandingsTable } from './StandingsTable';
+import { StandingsScreen } from './StandingsScreen';
 import { PlayersScreen } from './PlayersScreen';
 import { PlayerHeroCard } from './PlayerHeroCard';
 import { RecordScreen } from './RecordScreen';
@@ -57,6 +57,8 @@ interface Props {
   onToggleTheme: () => void;
   /** 現在のデータを手動保存する */
   onSave?: () => Promise<void> | void;
+  /** クラウドからセーブデータを手動読み込みする */
+  onCloudLoad?: () => Promise<{ success: boolean; message: string }>;
   /** 全データを削除して初期化する */
   onReset: () => void;
   onUpdateOrder: (teamId: string, order: TeamOrder) => void;
@@ -124,6 +126,7 @@ export function MainScreen({
   cloudSaving,
   onToggleTheme,
   onSave,
+  onCloudLoad,
   onReset,
   onUpdateOrder,
   onAdvance,
@@ -153,8 +156,11 @@ export function MainScreen({
   // オーダー/編成画面で選手タップ時にヘッダーへ表示する選手（playersタブ時のみ有効）
   const [heroPlayer, setHeroPlayer] = useState<Player | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showCloudLoadConfirm, setShowCloudLoadConfirm] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState(false);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudLoadNotice, setCloudLoadNotice] = useState<{ message: string; success: boolean } | null>(null);
 
   const handleManualSave = async () => {
     if (manualSaving || !onSave) return;
@@ -168,10 +174,23 @@ export function MainScreen({
     }
   };
 
+  const handleCloudLoad = async () => {
+    if (cloudLoading || !onCloudLoad) return;
+    setCloudLoading(true);
+    try {
+      const res = await onCloudLoad();
+      setCloudLoadNotice(res);
+      setTimeout(() => setCloudLoadNotice(null), 3000);
+    } finally {
+      setCloudLoading(false);
+    }
+  };
+
   const myOrder = useMemo(() => sanitizeOrder(orders[myTeam.id], myTeam), [orders, myTeam]);
 
   useEffect(() => {
-    if (orders[myTeam.id] !== myOrder) {
+    // 内容が変わっていない場合は書き戻さない（参照比較だと無限更新・編成操作の巻き戻しが起きる）
+    if (JSON.stringify(orders[myTeam.id]) !== JSON.stringify(myOrder)) {
       onUpdateOrder(myTeam.id, myOrder);
     }
   }, [myTeam.id, orders, myOrder, onUpdateOrder]);
@@ -234,13 +253,20 @@ export function MainScreen({
 
       <div className="tab-content">
         {tab === 'standings' && (
-          <StandingsTable
+          <StandingsScreen
             teams={teams}
             myLeague={myTeam.league}
             myTeamId={myTeam.id}
             records={records}
             schedule={schedule}
             gameCursor={gameCursor}
+            orders={orders}
+            playerStats={playerStats}
+            postseasonStats={postseasonStats}
+            playerCareers={playerCareers}
+            playerTitles={playerTitles}
+            seasonStartAbilities={seasonStartAbilities}
+            year={year}
           />
         )}
         {tab === 'game' && (
@@ -335,6 +361,32 @@ export function MainScreen({
                 {manualSaving ? '🔄 保存中...' : saveNotice ? '✅ 保存完了！' : '💾 現在のデータを保存'}
               </button>
             </div>
+            {authUser && onCloudLoad && (
+              <div className="setting-row">
+                <span className="setting-label">クラウド読込</span>
+                <button
+                  className="ghost-btn setting-btn"
+                  onClick={() => setShowCloudLoadConfirm(true)}
+                  disabled={cloudLoading || manualSaving}
+                  style={
+                    cloudLoadNotice
+                      ? {
+                          color: cloudLoadNotice.success ? '#2ed573' : '#ff4757',
+                          borderColor: cloudLoadNotice.success ? '#2ed573' : '#ff4757',
+                          fontWeight: 600,
+                        }
+                      : undefined
+                  }
+                  title="クラウドに保存されている最新のデータを読み込みます"
+                >
+                  {cloudLoading
+                    ? '🔄 読み込み中...'
+                    : cloudLoadNotice
+                      ? (cloudLoadNotice.success ? `✅ ${cloudLoadNotice.message}` : `⚠️ ${cloudLoadNotice.message}`)
+                      : '☁️ クラウドから読み込む'}
+                </button>
+              </div>
+            )}
             <div className="setting-row">
               <span className="setting-label">テーマ</span>
               <button className="ghost-btn setting-btn" onClick={onToggleTheme}>
@@ -382,6 +434,22 @@ export function MainScreen({
             onReset();
           }}
           onCancel={() => setShowResetConfirm(false)}
+        />
+      )}
+
+      {showCloudLoadConfirm && (
+        <ConfirmModal
+          title="クラウドデータの読み込み"
+          message={[
+            'クラウドに保存されたデータを読み込みますか？',
+            '※現在のローカルデータはクラウドのデータで上書きされます。',
+          ]}
+          confirmLabel="読み込む"
+          onConfirm={() => {
+            setShowCloudLoadConfirm(false);
+            handleCloudLoad();
+          }}
+          onCancel={() => setShowCloudLoadConfirm(false)}
         />
       )}
     </div>

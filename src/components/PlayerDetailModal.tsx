@@ -83,12 +83,12 @@ export function PlayerDetailModal({ player, stats, postseasonStats, career, titl
         teamId: '',
         teamName: '今季',
         stats: stats ?? {},
-        abilities: startAbilities ?? currentAbilities,
+        abilities: currentAbilities,
       });
     }
 
     return list.sort((a, b) => b.year - a.year);
-  }, [career, stats, startAbilities, player, year, hof]);
+  }, [career, stats, player, year, hof]);
 
   // 通算成績（過去 + 今年度の合算）
   const totals = useMemo(() => {

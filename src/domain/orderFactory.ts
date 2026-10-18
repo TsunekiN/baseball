@@ -282,7 +282,7 @@ export function cleanTeamOrder(order: TeamOrder, team: Team): TeamOrder {
   }
 
   // スタメンが9人未満ならベストオーダーで再編成
-  const targetLineup = Math.min(9, allBatters.length);
+  const targetLineup = Math.min(9, allBatters.filter((p) => team.rosterLevel[p.id] !== 'IL').length);
   if (cleanLineup.length < targetLineup) {
     const best = buildBestOrder(team);
     return {
@@ -320,8 +320,8 @@ export function cleanTeamOrder(order: TeamOrder, team: Team): TeamOrder {
     }
   }
 
-  const targetPitchers = Math.min(FIRST_PITCHERS, allPitchers.length);
-  if (cleanPitchers.length < targetPitchers) {
+  // 投手が1人も設定されていない等、壊れている場合のみベストオーダーで再編成
+  if (cleanPitchers.length === 0 && allPitchers.length > 0) {
     const best = buildBestOrder(team);
     return {
       lineup: cleanLineup,

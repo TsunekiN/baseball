@@ -118,7 +118,7 @@ function AbVal({ value, isVelocity }: { value: number; isVelocity?: boolean }) {
   );
 }
 
-/** スカウト候補の表。名前・年齢・出身国・主要4能力・健康・獲得ボタン */
+/** スカウト候補の表。名前・年齢・出身国・主要4能力・健康・獲得ボタン（才能・適応は非公開） */
 function ProspectTable({
   prospects,
   canSign,
@@ -143,8 +143,6 @@ function ProspectTable({
               <th key={l}>{l}</th>
             ))}
             <th>健</th>
-            <th>才</th>
-            <th>適</th>
             <th></th>
           </tr>
         </thead>
@@ -176,12 +174,6 @@ function ProspectTable({
                 ))}
                 <td>
                   <AbVal value={p.health} />
-                </td>
-                <td>
-                  <AbVal value={p.talent} />
-                </td>
-                <td>
-                  <AbVal value={p.adaptability} />
                 </td>
                 <td className="right">
                   <button className="primary-btn xs scout-sign-btn" onClick={() => onSign(p.id)} disabled={!canSign}>

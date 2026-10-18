@@ -19,8 +19,7 @@ import {
   getDocFromServer,
 } from 'firebase/firestore';
 import type { GameState } from './domain/gameState';
-import { SCHEMA_VERSION, buildInitialOrders } from './domain/gameState';
-import { backfillMissingCareers } from './domain/careerGenerator';
+import { SCHEMA_VERSION, sanitizeGameState } from './domain/gameState';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -239,15 +238,9 @@ export async function loadGameStateFromCloud(uid: string): Promise<CloudLoadResu
       console.warn('[Cloud Load] Invalid teams array. Ignoring cloud data.');
       return null;
     }
-    if (!parsed.orders) {
-      parsed.orders = buildInitialOrders(parsed.teams);
-    }
-    if (!parsed.playerCareers) {
-      parsed.playerCareers = {};
-    }
-    parsed.playerCareers = backfillMissingCareers(parsed.teams, parsed.playerCareers, parsed.year);
-    console.log('[Cloud Load] Successfully loaded. year:', parsed.year, 'weekIndex:', parsed.weekIndex);
-    return { state: parsed, updatedAt: data.updatedAt ?? '' };
+    const sanitized = sanitizeGameState(parsed);
+    console.log('[Cloud Load] Successfully loaded and sanitized. year:', sanitized.year, 'weekIndex:', sanitized.weekIndex);
+    return { state: sanitized, updatedAt: data.updatedAt ?? '' };
   } catch (parseErr) {
     console.error('[Cloud Load] Parse/decompress error:', parseErr);
     return null;

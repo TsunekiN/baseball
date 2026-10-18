@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TeamOrder } from './domain/types';
+import type { Team, TeamOrder } from './domain/types';
 import {
   createNewGameState,
   getMyTeam,
@@ -12,22 +12,22 @@ import {
 } from './domain/gameState';
 import { advanceMatches } from './match/progress';
 import { applyWeeklyGrowth } from './domain/growthEngine';
+import { runOffseason, releasePlayer, finalizeOffseason } from './domain/offseason';
 import {
-  runOffseason,
   startDraft,
   makeDraftPick,
   resolveLotteryDraw,
   confirmLotteryOutcome,
   finishMyTeamDraft,
-  releasePlayer,
   scoutDraftProspect,
-  finalizeOffseason,
+} from './domain/draftFlow';
+import {
   startForeignScout,
   offerForeignProspects,
   signForeign,
   finishForeignScout,
   canSignForeign,
-} from './domain/offseason';
+} from './domain/foreignScoutFlow';
 import type { Position } from './domain/types';
 import { advancePostseason } from './match/postseasonProgress';
 import { initPostseason, type PostseasonState } from './match/postseason';
@@ -144,24 +144,59 @@ export default function App() {
     advancingRef.current = false;
   }, [game]);
 
-  // 状態が変わるたびにローカル保存 & クラウド保存（デバウンス500ms）
+  // 故障者リスト(IL)の整合性補正:
+  // 有効な負傷情報(gamesLeft>0)が無い、またはオフシーズン中なのに rosterLevel が 'IL' のまま残っている選手は
+  // 二軍(FARM)へ戻す。残っていると一軍/編成の補充対象から外れ、投手が13人以下になったまま自動編成でも直らない。
+  useEffect(() => {
+    const isOff = game.phase === 'OFFSEASON';
+    const stale = (t: Team) =>
+      Object.entries(t.rosterLevel).some(
+        ([id, lv]) => lv === 'IL' && (isOff || !((game.injuries?.[id]?.gamesLeft ?? 0) > 0)),
+      );
+    if (!game.teams.some(stale)) return;
+    setGame((prev) => ({
+      ...prev,
+      teams: prev.teams.map((t) => {
+        const off = prev.phase === 'OFFSEASON';
+        const rosterLevel = { ...t.rosterLevel };
+        let changed = false;
+        for (const [id, lv] of Object.entries(rosterLevel)) {
+          if (lv === 'IL' && (off || !((prev.injuries?.[id]?.gamesLeft ?? 0) > 0))) {
+            rosterLevel[id] = 'FARM';
+            changed = true;
+          }
+        }
+        return changed ? { ...t, rosterLevel } : t;
+      }),
+    }));
+  }, [game.teams, game.injuries, game.phase]);
+
+  // 年度初めのクラウド保存を済ませた年度（同一年度での重複保存を防ぐ）
+  const seasonStartSavedYearRef = useRef<number | null>(null);
+
+  // 状態が変わるたびにローカル保存（無料）。クラウド保存は年度初め（4月1週・最初の試合前）のみ。
+  // それ以外のクラウド保存は「現在のデータを保存」ボタン（手動）のみ。
   useEffect(() => {
     saveGameState(game);
 
-    if (authUser && isCloudLoadedRef.current) {
-      console.log('[AutoSave] Scheduling cloud save. year:', game.year, 'week:', game.weekIndex);
+    const isSeasonStart =
+      game.phase === 'REGULAR' &&
+      game.weekIndex === 0 &&
+      game.gameCursor === 0 &&
+      !game.postseason &&
+      !!game.myTeamId;
+
+    if (authUser && isCloudLoadedRef.current && isSeasonStart && seasonStartSavedYearRef.current !== game.year) {
+      console.log('[AutoSave] Season-start cloud save. year:', game.year);
+      seasonStartSavedYearRef.current = game.year;
       setCloudSaving(true);
-      const timer = setTimeout(async () => {
-        try {
-          await saveGameStateToCloud(authUser.uid, game);
-        } catch (err) {
-          // 自動保存の失敗はサイレント（連続操作中の一時的な失敗もありうるため）
+      saveGameStateToCloud(authUser.uid, game)
+        .catch((err) => {
+          // 失敗時は次回の機会に再試行できるよう解除
+          seasonStartSavedYearRef.current = null;
           console.error('[AutoSave] Cloud save failed:', err);
-        } finally {
-          setCloudSaving(false);
-        }
-      }, 500);
-      return () => clearTimeout(timer);
+        })
+        .finally(() => setCloudSaving(false));
     }
   }, [game, authUser]);
 
@@ -209,6 +244,32 @@ export default function App() {
       } finally {
         setCloudSaving(false);
       }
+    }
+  };
+
+  // クラウドからセーブデータを手動で読み込む
+  const handleCloudLoad = async (): Promise<{ success: boolean; message: string }> => {
+    if (!authUser) {
+      return { success: false, message: 'ログインしていません' };
+    }
+    setCloudSaveError(null);
+    try {
+      const result = await loadGameStateFromCloud(authUser.uid);
+      if (!result) {
+        return { success: false, message: 'セーブデータがありません' };
+      }
+      setGame(result.state);
+      saveGameState(result.state);
+      setLastResults([]);
+      setInjuryAlerts([]);
+      setNoticeAlerts([]);
+      setInjuryBadge(false);
+      isCloudLoadedRef.current = true;
+      seasonStartSavedYearRef.current = result.state.year;
+      return { success: true, message: `${result.state.year}年のデータを読込` };
+    } catch (err) {
+      console.error('[ManualCloudLoad] Failed to load from cloud:', err);
+      return { success: false, message: '読み込みに失敗しました' };
     }
   };
 
@@ -516,6 +577,7 @@ export default function App() {
             cloudSaving={cloudSaving}
             onToggleTheme={toggleTheme}
             onSave={handleManualSave}
+            onCloudLoad={handleCloudLoad}
             onReset={handleReset}
             onUpdateOrder={handleUpdateOrder}
             onAdvance={handleAdvance}
@@ -545,6 +607,7 @@ export default function App() {
             teams={game.teams}
             onDecide={handleDecide}
             onRegenerate={handleRegenerate}
+            onCloudLoad={handleCloudLoad}
           />
         )}
       </main>

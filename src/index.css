@@ -1408,24 +1408,28 @@ select:disabled {
 /* チーム列はバッジのみに絞り、6指標を均等幅で配置する */
 .standings.stats .standings-head,
 .standings.stats .standings-row {
-  grid-template-columns: 18px 24px repeat(6, 1fr);
+  grid-template-columns: 18px 42px repeat(6, 1fr);
   gap: 3px;
 }
 
 .standings.stats .col-team {
   justify-content: center;
+  white-space: nowrap;
 }
 
 .col-stat {
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  padding-right: 3px;
 }
 
 /* 見出しはやや小さめでも最小サイズ(11px)維持。指標名が長い列も1行に収める */
 .standings.stats .standings-head .col-stat {
   font-size: 11px;
   letter-spacing: -0.02em;
+  text-align: right;
+  padding-right: 3px;
 }
 
 /* 切替ボタン（順位表の右下） */
@@ -1438,6 +1442,37 @@ select:disabled {
 .switch-btn {
   padding: 5px 14px;
   font-size: 11px;
+}
+
+/* 順位画面上部: 順位表 / チーム情報 切替タブ */
+.standings-view-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.standings-view-tab {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.standings-view-tab.active {
+  background: var(--bg-panel-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.team-info-view {
+  display: flex;
+  flex-direction: column;
 }
 
 /* 順位表（両リーグ表示） */
@@ -1625,6 +1660,24 @@ select:disabled {
   box-shadow: 0 0 0 2px #ffd043 inset, 0 0 8px rgba(255, 208, 67, 0.4);
   background: rgba(255, 208, 67, 0.15) !important;
   animation: pulse-border 1.5s infinite;
+}
+
+.bf-row.empty {
+  border-style: dashed;
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.bf-row.empty:hover:not(.selected) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bf-name.empty-slot {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 10px;
 }
 
 @keyframes pulse-border {
@@ -4010,3 +4063,135 @@ select:disabled {
   border-radius: 6px;
   min-width: 0;
 }
+
+/* ===== 選手画面: 12球団セレクター ===== */
+.team-selector-bar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.team-selector-league {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-selector-label {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.team-selector-label.ce {
+  background: #2b7de9;
+}
+
+.team-selector-label.pa {
+  background: #e6558f;
+}
+
+.team-selector-chips {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  flex: 1;
+}
+
+.team-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.team-chip:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+}
+
+.team-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.team-chip.is-my-team {
+  position: relative;
+}
+
+.team-chip.is-my-team::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffcc00;
+}
+
+.team-chip.active.is-my-team::after {
+  background: #fff;
+}
+
+.team-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-badge.xs {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.viewing-other-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.viewing-other-banner span {
+  font-weight: 600;
+}
+
+.viewing-other-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+

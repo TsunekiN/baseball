@@ -41,9 +41,8 @@ function generateForeignPlayer(position: Position, nextYear: number): Player {
     adaptability: randInt(1, 99),
   });
 
-  // 健康、才能、適応は1～99の範囲でランダム
-  p.health = randInt(1, 99);
-  p.talent = randInt(1, 99);
+  // 健康は30～99、適応は1～99の完全ランダム（才能は初期実力に応じた適正値）
+  p.health = randInt(30, 99);
   p.adaptability = randInt(1, 99);
 
   const [s1, s2, s3, s4] = generateForeignCoreStats();

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Position, Team } from '../domain/types';
+import type { Player, Position, Team } from '../domain/types';
 import type { DraftState } from '../domain/gameState';
 import { rankColor, rankFromValue, rankFromVelocity, displayAbility } from '../domain/rank';
 import { ConfirmModal } from './ConfirmModal';
@@ -17,7 +17,18 @@ interface Props {
 }
 
 type PosFilter = 'ALL' | Position;
-type SortField = 'overall' | 'age' | 'mainStat';
+/** overall=総合力, age=年齢, ability0〜3=各能力（表の能力列の順。健康は対象外） */
+type SortField = 'overall' | 'age' | 'ability0' | 'ability1' | 'ability2' | 'ability3';
+
+const PITCHER_ABILITY_LABELS = ['球速', '制球', '変化', 'スタ'];
+const BATTER_ABILITY_LABELS = ['ミート', 'パワー', '走力', '守備'];
+
+/** 並び替え用: 能力列インデックスに対応する能力値（表示列の順と一致） */
+function abilityValue(p: Player, idx: number): number {
+  return p.type === 'PITCHER'
+    ? [p.velocity, p.control, p.breaking, p.stamina][idx]
+    : [p.contact, p.power, p.speed, p.defense][idx];
+}
 
 /** ドラフト会議メイン画面 */
 export function DraftScreen({
@@ -59,10 +70,9 @@ export function DraftScreen({
         if (aPicked !== bPicked) return aPicked ? 1 : -1;
 
         if (sortField === 'age') return a.age - b.age;
-        if (sortField === 'mainStat') {
-          const aStat = a.type === 'PITCHER' ? a.velocity : a.power;
-          const bStat = b.type === 'PITCHER' ? b.velocity : b.power;
-          return bStat - aStat;
+        if (sortField.startsWith('ability')) {
+          const idx = Number(sortField.slice('ability'.length));
+          return abilityValue(b, idx) - abilityValue(a, idx);
         }
         // overall
         const aScore = a.type === 'PITCHER'
@@ -148,8 +158,10 @@ export function DraftScreen({
             onChange={(e) => setSortField(e.target.value as SortField)}
           >
             <option value="overall">総合力順</option>
-            <option value="mainStat">主力能力順</option>
-            <option value="age">年齢順</option>
+            <option value="age">年齢順（若い順）</option>
+            {(posFilter === 'P' ? PITCHER_ABILITY_LABELS : BATTER_ABILITY_LABELS).map((lbl, i) => (
+              <option key={lbl} value={`ability${i}`}>{lbl}順</option>
+            ))}
           </select>
         </div>
       </div>
