@@ -53,12 +53,56 @@ function AbCell({ label, value, isVelocity, delta }: { label: string; value: num
   );
 }
 
+/** 4能力の合計を算出（野手: ミ+パ+走+守、投手: 球速+制球+変化+スタミナ） */
+function calc4Sum(
+  a: {
+    contact?: number;
+    power?: number;
+    speed?: number;
+    defense?: number;
+    velocity?: number;
+    control?: number;
+    breaking?: number;
+    stamina?: number;
+  },
+  isPitcher: boolean,
+): number {
+  return isPitcher
+    ? (a.velocity ?? 0) + (a.control ?? 0) + (a.breaking ?? 0) + (a.stamina ?? 0)
+    : (a.contact ?? 0) + (a.power ?? 0) + (a.speed ?? 0) + (a.defense ?? 0);
+}
+
 export function PlayerDetailModal({ player, stats, postseasonStats, career, titles, startAbilities, year, hof, onRelease, onClose }: Props) {
   const isPitcher = player.type === 'PITCHER';
   const [tab, setTab] = useState<Tab>('basic');
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const proYear = year - player.debutYear + 1;
   const showHidden = proYear >= 3; // 隠しパラメータは入団3年目以降に公開
+
+  // 殿堂入り選手の場合: 4能力の合計が最も高かった年度（全盛期）の能力値を求める
+  const peakYearInfo = useMemo(() => {
+    if (!hof) return null;
+    const past = career?.seasons ?? [];
+    if (past.length === 0) return null;
+
+    let bestLine: SeasonStatLine | null = null;
+    let bestSum = -Infinity;
+
+    for (const sl of past) {
+      if (!sl.abilities) continue;
+      const sum = calc4Sum(sl.abilities, isPitcher);
+      if (sum > bestSum) {
+        bestSum = sum;
+        bestLine = sl;
+      }
+    }
+
+    if (!bestLine) return null;
+    return {
+      year: bestLine.year,
+      abilities: bestLine.abilities,
+    };
+  }, [hof, career, isPitcher]);
 
   // 年度別成績・能力推移（確定した過去の年度別成績 + 進行中の今年度）
   const seasons: SeasonStatLine[] = useMemo(() => {
@@ -127,18 +171,19 @@ export function PlayerDetailModal({ player, stats, postseasonStats, career, titl
   const sa = hof ? undefined : startAbilities;
   const delta = (key: keyof AbilitySnapshot, cur: number): number | undefined =>
     sa ? cur - (sa[key] as number) : undefined;
+  const displayAbilities = hof && peakYearInfo ? peakYearInfo.abilities : player;
   const abilities = isPitcher
     ? [
-        { label: '球', value: player.velocity, isVelocity: true, delta: delta('velocity', player.velocity) },
-        { label: '制', value: player.control, delta: delta('control', player.control) },
-        { label: '変', value: player.breaking, delta: delta('breaking', player.breaking) },
-        { label: 'ス', value: player.stamina, delta: delta('stamina', player.stamina) },
+        { label: '球', value: displayAbilities.velocity, isVelocity: true, delta: delta('velocity', displayAbilities.velocity) },
+        { label: '制', value: displayAbilities.control, delta: delta('control', displayAbilities.control) },
+        { label: '変', value: displayAbilities.breaking, delta: delta('breaking', displayAbilities.breaking) },
+        { label: 'ス', value: displayAbilities.stamina, delta: delta('stamina', displayAbilities.stamina) },
       ]
     : [
-        { label: 'ミ', value: player.contact, delta: delta('contact', player.contact) },
-        { label: 'パ', value: player.power, delta: delta('power', player.power) },
-        { label: '走', value: player.speed, delta: delta('speed', player.speed) },
-        { label: '守', value: player.defense, delta: delta('defense', player.defense) },
+        { label: 'ミ', value: displayAbilities.contact, delta: delta('contact', displayAbilities.contact) },
+        { label: 'パ', value: displayAbilities.power, delta: delta('power', displayAbilities.power) },
+        { label: '走', value: displayAbilities.speed, delta: delta('speed', displayAbilities.speed) },
+        { label: '守', value: displayAbilities.defense, delta: delta('defense', displayAbilities.defense) },
       ];
 
   return (
@@ -189,6 +234,11 @@ export function PlayerDetailModal({ player, stats, postseasonStats, career, titl
                   </>
                 )}
               </div>
+              {hof && peakYearInfo && (
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, marginBottom: 6 }}>
+                  ※能力値は全盛期（{peakYearInfo.year}年度）の数値を表示
+                </div>
+              )}
               {/* プロフィール */}
               <div className="md-profile">
                 <div><span className="md-pf-label">出身</span>{player.hometown}</div>

@@ -11,7 +11,7 @@ function makeBatter(age: number, gt: GrowthType, base: number, talent: number, e
     age,
     growth_type: gt,
     contact: base, power: base, speed: base, defense: base,
-    velocity: 140, breaking: 40, control: 40, stamina: 40,
+    stuff: 40, velocity: 140, breaking: 40, control: 40, stamina: 40,
     talent, effort, health: 60, luck: 60, adaptability: 0,
     is_foreign: false, country: 'JPN', debutYear: 2020,
   };
@@ -23,7 +23,7 @@ function makeForeign(age: number, base: number, talent: number, adaptability: nu
     id: `f_${age}_${base}_${adaptability}`,
     name: '外国人', position: 'OF', type: 'BATTER', age, growth_type: 'NORMAL',
     contact: base, power: base, speed: base, defense: base,
-    velocity: 145, breaking: 40, control: 40, stamina: 40,
+    stuff: 40, velocity: 145, breaking: 40, control: 40, stamina: 40,
     talent, effort: 0, health: 60, luck: 60, adaptability,
     is_foreign: true, country: 'USA', debutYear: 2027,
   };

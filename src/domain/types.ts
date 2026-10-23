@@ -31,7 +31,8 @@ export interface Player {
   defense: number;
 
   // 投手能力 (投手の場合)
-  velocity: number; // km/h
+  stuff: number; // 球威 (1-99+, 内部パラメータ・非表示)
+  velocity: number; // km/h (計算結果: 球威 ÷ 2.5 + 124。画面表示用)
   breaking: number;
   control: number;
   stamina: number;
@@ -137,3 +138,28 @@ export interface TeamOrder {
   /** 二軍投手のplayerId（表示・並べ替え順） */
   farmPitchers: string[];
 }
+
+/**
+ * 球威から球速(km/h)を算出する計算式。
+ * 球速 ＝ 球威 ÷ 2.5 ＋ 124
+ */
+export function calcVelocity(stuff: number): number {
+  return Math.round(stuff / 2.5 + 124);
+}
+
+/**
+ * 球速(km/h)から球威を逆算する（既存セーブデータ・過去履歴移行用）。
+ * 球威 ＝ (球速 − 124) × 2.5
+ */
+export function calcStuff(velocity: number): number {
+  return Math.round((velocity - 124) * 2.5);
+}
+
+/**
+ * 投手の球威（stuff）を取得する。
+ * 未設定・欠損時は球速(km/h)から逆算して安全に返す。
+ */
+export function getPitcherStuff(p: { velocity: number; stuff?: number }): number {
+  return p.stuff ?? calcStuff(p.velocity);
+}
+

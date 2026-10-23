@@ -18,7 +18,7 @@ interface SlotDef {
   rotationOrder?: number;
 }
 
-// 一軍規定の14スロット（先発6, 抑え1, セット1, 中継ぎ6）
+// 一軍規定の14スロット（先発6, セット1, 抑え1, 中継ぎ6）
 const FIRST_TEAM_SLOTS: SlotDef[] = [
   { role: 'STARTER', label: '先発1', rotationOrder: 1 },
   { role: 'STARTER', label: '先発2', rotationOrder: 2 },
@@ -26,8 +26,8 @@ const FIRST_TEAM_SLOTS: SlotDef[] = [
   { role: 'STARTER', label: '先発4', rotationOrder: 4 },
   { role: 'STARTER', label: '先発5', rotationOrder: 5 },
   { role: 'STARTER', label: '先発6', rotationOrder: 6 },
-  { role: 'CLOSER', label: '抑え' },
   { role: 'SETUP', label: 'セット' },
+  { role: 'CLOSER', label: '抑え' },
   { role: 'MIDDLE', label: '中1' },
   { role: 'MIDDLE', label: '中2' },
   { role: 'MIDDLE', label: '中3' },
@@ -72,13 +72,13 @@ export function PitcherFormation({ team, order, onChange, injuries, onSelect }: 
       slots[idx] = p.playerId;
     });
 
-    // 2) 抑え (CLOSER)
-    const closer = assignedPitchers.find((p) => p.role === 'CLOSER');
-    if (closer) slots[6] = closer.playerId;
-
-    // 3) セットアッパー (SETUP)
+    // 2) セットアッパー (SETUP)
     const setup = assignedPitchers.find((p) => p.role === 'SETUP');
-    if (setup) slots[7] = setup.playerId;
+    if (setup) slots[6] = setup.playerId;
+
+    // 3) 抑え (CLOSER)
+    const closer = assignedPitchers.find((p) => p.role === 'CLOSER');
+    if (closer) slots[7] = closer.playerId;
 
     // 4) 中継ぎ (MIDDLE)
     const middles = assignedPitchers.filter((p) => p.role === 'MIDDLE');

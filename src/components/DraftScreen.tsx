@@ -14,6 +14,8 @@ interface Props {
   onScout: (prospectId: string) => void;
   onFinishDraft: () => void;
   onCompleteAll: () => void;
+  onRestartDraft?: () => void;
+  debugMode?: boolean;
 }
 
 type PosFilter = 'ALL' | Position;
@@ -41,12 +43,15 @@ export function DraftScreen({
   onScout,
   onFinishDraft,
   onCompleteAll,
+  onRestartDraft,
+  debugMode = false,
 }: Props) {
   const [posFilter, setPosFilter] = useState<PosFilter>('P');
   const [sortField, setSortField] = useState<SortField>('overall');
   const [showRosterModal, setShowRosterModal] = useState(false);
   const [rosterTab, setRosterTab] = useState<'BATTER' | 'PITCHER'>('BATTER');
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   // 球団マップ
   const teamMap = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
@@ -110,6 +115,16 @@ export function DraftScreen({
           >
             📋 戦力
           </button>
+          {debugMode && onRestartDraft && (
+            <button
+              className="ghost-btn sm"
+              style={{ color: '#e23b3b', borderColor: '#e23b3b' }}
+              onClick={() => setShowRestartConfirm(true)}
+              title="ドラフト候補選手を最初から再生成してやり直す"
+            >
+              🔄 最初からやり直す
+            </button>
+          )}
           {!draft.done && !draft.myTeamFinished && (
             <button
               className="ghost-btn sm"
@@ -146,8 +161,15 @@ export function DraftScreen({
               {pos}
             </button>
           ))}
-          <span className="draft-scout-badge" title="隠しパラメータ（才能または努力）を片方調査できます（最大10回）">
-            🔍 調査残: <strong>{draft.scoutsLeft}</strong> 回
+          <span
+            className="draft-scout-badge"
+            title={
+              debugMode
+                ? 'デバッグモード: 全候補の隠しパラメータ（才能・努力）が開示されています'
+                : '隠しパラメータ（才能または努力）を片方調査できます（最大10回）'
+            }
+          >
+            🔍 調査残: <strong>{debugMode ? '全開示' : `${draft.scoutsLeft} 回`}</strong>
           </span>
         </div>
         <div className="sort-group">
@@ -218,7 +240,19 @@ export function DraftScreen({
                   ))}
                   <td className="center"><AbCell value={p.health} isVelo={false} /></td>
                   <td className="center">
-                    {scoutResult ? (
+                    {debugMode ? (
+                      <span className="scout-revealed-chip">
+                        <span className="scout-chip-label">才</span>
+                        <span className="scout-chip-val" style={{ color: rankColor(rankFromValue(p.talent)).border }}>
+                          {rankFromValue(p.talent)}
+                        </span>
+                        <span className="scout-chip-sep">/</span>
+                        <span className="scout-chip-label">努</span>
+                        <span className="scout-chip-val" style={{ color: rankColor(rankFromValue(p.effort)).border }}>
+                          {rankFromValue(p.effort)}
+                        </span>
+                      </span>
+                    ) : scoutResult ? (
                       <span className="scout-revealed-chip">
                         <span className="scout-chip-label">才</span>
                         <span className="scout-chip-val" style={{ color: scoutResult === 'talent' ? rankColor(rankFromValue(p.talent)).border : '#888' }}>
@@ -463,6 +497,22 @@ export function DraftScreen({
             onFinishDraft();
           }}
           onCancel={() => setShowFinishConfirm(false)}
+        />
+      )}
+
+      {showRestartConfirm && onRestartDraft && (
+        <ConfirmModal
+          title="ドラフトのやり直し確認"
+          message={[
+            'ドラフト候補選手をすべて最初から再生成し、1巡目の開始時点からやり直します。',
+            '現在の指名状況やスカウト調査結果はリセットされます。よろしいですか？'
+          ]}
+          confirmLabel="やり直す"
+          onConfirm={() => {
+            setShowRestartConfirm(false);
+            onRestartDraft();
+          }}
+          onCancel={() => setShowRestartConfirm(false)}
         />
       )}
     </div>

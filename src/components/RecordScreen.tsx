@@ -53,7 +53,7 @@ export function RecordScreen({ teams, myTeam, playerStats, postseasonStats, play
 
       {section === 'ranking' && <Ranking teams={teams} playerStats={playerStats} onSelect={setSelected} />}
       {section === 'team' && <TeamStats team={myTeam} seasonHistory={seasonHistory} />}
-      {section === 'hof' && <HallOfFame hallOfFame={hallOfFame} />}
+      {section === 'hof' && <HallOfFame hallOfFame={hallOfFame} playerCareers={playerCareers} />}
 
       {selected && (
         <PlayerDetailModal
@@ -308,14 +308,20 @@ function TeamStats({ team, seasonHistory }: { team: Team; seasonHistory: SeasonH
 }
 
 // ================= 殿堂入り =================
-function HallOfFame({ hallOfFame }: { hallOfFame: HallOfFamer[] }) {
+function HallOfFame({
+  hallOfFame,
+  playerCareers,
+}: {
+  hallOfFame: HallOfFamer[];
+  playerCareers?: Record<string, PlayerCareer>;
+}) {
   const [selected, setSelected] = useState<HallOfFamer | null>(null);
 
   if (hallOfFame.length === 0) {
     return (
       <div className="home-panel">
         <p className="home-note">
-          まだ殿堂入り選手はいません。名球会レベルの成績を残した選手が引退すると、ここに記録されます。
+          まだ殿堂入り選手はいません。基準（打者: 1600安打以上または300本塁打以上 / 投手: 150勝以上またはセーブ＋ホールド200以上）を満たした選手が引退すると、ここに記録されます。
         </p>
       </div>
     );
@@ -337,7 +343,10 @@ function HallOfFame({ hallOfFame }: { hallOfFame: HallOfFamer[] }) {
       {selected && (
         <PlayerDetailModal
           player={selected.player}
-          career={{ playerId: selected.player.id, seasons: selected.seasons ?? [] }}
+          career={{
+            playerId: selected.player.id,
+            seasons: selected.seasons?.length ? selected.seasons : (playerCareers?.[selected.player.id]?.seasons ?? []),
+          }}
           titles={selected.titles}
           year={selected.leaveYear}
           hof={{ joinYear: selected.joinYear, leaveYear: selected.leaveYear }}

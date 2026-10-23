@@ -1,13 +1,8 @@
-import type { Player } from '../domain/types';
+import { getPitcherStuff, type Player } from '../domain/types';
 import type { AtBatOutcome } from './matchTypes';
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
-}
-
-/** 球速(km/h)を能力スケール(約0-110)へ換算 */
-function veloScore(kmh: number): number {
-  return clamp((kmh - 125) * 2.5, 0, 120);
 }
 
 /**
@@ -28,7 +23,7 @@ export function simulateAtBat(
 
   // 投手支配力（0〜110程度）
   const dom =
-    (veloScore(pitcher.velocity) * 0.35 + pitcher.breaking * 0.35 + pitcher.control * 0.3) *
+    (getPitcherStuff(pitcher) * 0.35 + pitcher.breaking * 0.35 + pitcher.control * 0.3) *
     stamFactor;
 
   // 打者総合力（ミート重視）

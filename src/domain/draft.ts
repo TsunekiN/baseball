@@ -4,8 +4,8 @@
 // UI／進行状態は draftState / DraftScreen 側で扱う。
 // ============================================================
 
-import type { Player, Position, Team } from './types';
-import { generatePlayer } from './playerFactory';
+import { getPitcherStuff, type Player, type Position, type Team } from './types';
+import { generatePlayer, generateTalent } from './playerFactory';
 import { randInt } from './random';
 
 /** ポジション別の候補人数 */
@@ -46,11 +46,11 @@ export function generateDraftProspects(nextYear: number): Player[] {
     for (let i = 0; i < count; i++) {
       const age = prospectAge();
 
-      // 18歳高校生基準の初期能力ベース (18〜46のランダム)
-      const base18 = 18 + Math.random() * 28;
-      // 年齢増加分（大卒22歳、社会人20/24歳、独立25-27歳等）
+      // 18歳高校生基準の初期能力ベース (31〜49、平均40：中間値)
+      const base18 = 31 + Math.random() * 18;
+      // 年齢増加分（大卒22歳で+8.4、社会人24歳で+12.6程度加算）
       const extraYears = Math.max(0, age - 18);
-      const calculatedMean = Math.min(62, Math.round(base18 + extraYears * 1.5));
+      const calculatedMean = Math.min(60, Math.round(base18 + extraYears * 2.1));
 
       const p = generatePlayer({
         type: position === 'P' ? 'PITCHER' : 'BATTER',
@@ -59,6 +59,10 @@ export function generateDraftProspects(nextYear: number): Player[] {
         debutYear: nextYear,
         baseMean: calculatedMean,
       });
+
+      // 才能値・努力値は 25〜99 の完全ランダム（一様分布）
+      p.talent = generateTalent(45, 98);
+      p.effort = randInt(35, 95);
 
       pool.push(p);
     }
@@ -69,8 +73,8 @@ export function generateDraftProspects(nextYear: number): Player[] {
 /** 選手の総合評価（CPU指名・並び用）。表能力ベース。 */
 export function prospectScore(p: Player): number {
   if (p.type === 'PITCHER') {
-    const velo = Math.max(0, Math.min(110, (p.velocity - 125) * 2.5));
-    return velo * 0.35 + p.breaking * 0.35 + p.control * 0.3;
+    const stuff = getPitcherStuff(p);
+    return stuff * 0.35 + p.breaking * 0.35 + p.control * 0.3;
   }
   return p.contact * 0.3 + p.power * 0.3 + p.speed * 0.2 + p.defense * 0.2;
 }

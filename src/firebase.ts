@@ -230,14 +230,16 @@ export async function loadGameStateFromCloud(uid: string): Promise<CloudLoadResu
 
     console.log('[Cloud Load] parsed.version:', parsed.version, 'SCHEMA_VERSION:', SCHEMA_VERSION, 'year:', parsed.year, 'weekIndex:', parsed.weekIndex);
 
-    if (parsed.version !== SCHEMA_VERSION) {
-      console.warn('[Cloud Load] Version mismatch! Ignoring cloud data.');
+    // バージョンが存在し、現在以下のバージョンであればサニタイズして最新版として復元
+    if (typeof parsed.version !== 'number' || parsed.version > SCHEMA_VERSION) {
+      console.warn('[Cloud Load] Incompatible version! Ignoring cloud data. version:', parsed.version);
       return null;
     }
     if (!Array.isArray(parsed.teams) || parsed.teams.length === 0) {
       console.warn('[Cloud Load] Invalid teams array. Ignoring cloud data.');
       return null;
     }
+    parsed.version = SCHEMA_VERSION;
     const sanitized = sanitizeGameState(parsed);
     console.log('[Cloud Load] Successfully loaded and sanitized. year:', sanitized.year, 'weekIndex:', sanitized.weekIndex);
     return { state: sanitized, updatedAt: data.updatedAt ?? '' };
@@ -254,9 +256,9 @@ export async function loadGameStateFromCloud(uid: string): Promise<CloudLoadResu
  * - 800KBを超える場合は users/{uid}/chunks/{index} に800KB単位で分割保存（writeBatchによるアトミック保存）
  * ※ エラー時は throw する（呼び出し元で try/catch してユーザーに通知）
  */
-export async function saveGameStateToCloud(uid: string, state: GameState): Promise<void> {
+export async function saveGameStateToCloud(uid: string, state: GameState, customUpdatedAt?: string): Promise<string> {
   const userDocRef = doc(db, 'users', uid);
-  const now = new Date().toISOString();
+  const now = customUpdatedAt ?? new Date().toISOString();
 
   const json = JSON.stringify(state);
   console.log('[Cloud Save] Original JSON size:', json.length, 'bytes');
@@ -317,6 +319,7 @@ export async function saveGameStateToCloud(uid: string, state: GameState): Promi
   }
 
   console.log('[Cloud Save] Save complete.');
+  return now;
 }
 
 /**

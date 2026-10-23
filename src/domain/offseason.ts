@@ -6,18 +6,19 @@
 // ============================================================
 
 import type { GameState, PlayerCareer, SeasonHistory, TeamSeasonResult } from './gameState';
-import { startNextSeason, normalizeRoster } from './gameState';
+import { startNextSeason } from './gameState';
 import { awardTitles } from './titleAward';
 import { emptyTitleCounts, TITLE_DEFS, type TitleCounts } from './stats';
 import { buildStandings } from './standings';
 import { applyAgingAdjustment } from './growthEngine';
-import type { League, Player, RosterLevel, Team, TeamOrder } from './types';
-import { buildBestOrder } from './orderFactory';
+import { getPitcherStuff, type League, type Player, type RosterLevel, type Team, type TeamOrder } from './types';
+import { buildBestOrder, normalizeRoster, batterOverall, pitcherOverall } from './orderFactory';
+import { pickForCpu } from './draft';
 import {
   emptyBatting, emptyPitching, battingAvg, battingObp, battingOps, pitchingEra,
   type SeasonBatting, type SeasonPitching, type PlayerSeasonStats,
 } from '../match/matchStats';
-import { toBattingStats, toPitchingStats, type HallOfFamer, type CareerRecord } from './stats';
+import { toBattingStats, toPitchingStats, meetsHofCriteria, type HallOfFamer, type CareerRecord } from './stats';
 
 /** タイトル受賞者1件 */
 export interface TitleWinnerEntry {
@@ -266,13 +267,13 @@ export function careerTotals(seasons: { stats: { batting?: SeasonBatting; pitchi
   return { batting, pitching, years: seasons.length };
 }
 
-/** 選手の主力能力の平均（引退判定用）。野手は表能力4、投手は球速換算＋変化・制球・スタミナ。 */
-function coreAbility(p: Pick<Player, 'type' | 'contact' | 'power' | 'speed' | 'defense' | 'velocity' | 'breaking' | 'control' | 'stamina'>): number {
+/** 選手の主力能力の平均（引退判定用）。野手は表能力4、投手は球威＋変化・制球・スタミナ。 */
+function coreAbility(p: Pick<Player, 'type' | 'contact' | 'power' | 'speed' | 'defense' | 'velocity' | 'breaking' | 'control' | 'stamina'> & { stuff?: number }): number {
   if (p.type === 'BATTER') {
     return (p.contact + p.power + p.speed + p.defense) / 4;
   }
-  const velo = Math.max(0, Math.min(110, (p.velocity - 125) * 2.5));
-  return (velo + p.breaking + p.control + p.stamina) / 4;
+  const stuff = getPitcherStuff(p);
+  return (stuff + p.breaking + p.control + p.stamina) / 4;
 }
 
 /** ピーク能力からこの割合以上低下したら引退（20%） */
@@ -310,15 +311,6 @@ function retireProbability(p: Player): number {
     if (ability < 60) return 0.15;
   }
   return 0;
-}
-
-/** 殿堂入り資格を満たすか（野手1500安打or300本 / 投手120勝orセーブ+ホールド150） */
-function meetsHofCriteria(totals: { batting?: SeasonBatting; pitching?: SeasonPitching }): boolean {
-  const b = totals.batting;
-  const p = totals.pitching;
-  if (b && (b.hits >= 1500 || b.hr >= 300)) return true;
-  if (p && (p.wins >= 120 || p.saves + p.holds >= 150)) return true;
-  return false;
 }
 
 /**
@@ -553,12 +545,42 @@ export function runOffseason(state: GameState): GameState {
 }
 
 /**
- * ドラフト（および今後スカウト）完了後、指名選手をチームへ加え、翌シーズンを開幕する。
+ * CPU球団の保有枠（50名）を超過している場合、二軍の戦力評価下位選手を自動で自由契約にして枠内に収める。
+ * 新規加入選手（ドラフト・新外国人）および一軍登録選手は保護される。
+ */
+function pruneCpuRoster(team: Team, protectedIds: Set<string>): Team {
+  if (team.players.length <= 50) return team;
+  const excess = team.players.length - 50;
+
+  const score = (p: Player) => (p.type === 'BATTER' ? batterOverall(p) : pitcherOverall(p));
+  const farmEligible = team.players
+    .filter((p) => team.rosterLevel[p.id] !== 'FIRST' && !protectedIds.has(p.id))
+    .sort((a, b) => {
+      // スコアが低く、年齢が高めの選手を優先して整理
+      const valA = score(a) - Math.max(0, a.age - 26) * 2;
+      const valB = score(b) - Math.max(0, b.age - 26) * 2;
+      return valA - valB;
+    });
+
+  const toRemove = new Set(farmEligible.slice(0, excess).map((p) => p.id));
+  const nextPlayers = team.players.filter((p) => !toRemove.has(p.id));
+  const nextRosterLevel: Record<string, RosterLevel> = {};
+  for (const p of nextPlayers) {
+    nextRosterLevel[p.id] = team.rosterLevel[p.id] ?? 'FARM';
+  }
+
+  return { ...team, players: nextPlayers, rosterLevel: nextRosterLevel };
+}
+
+/**
+ * ドラフトおよび外国人スカウト完了後、指名選手・獲得外国人をチームへ加え、翌シーズンを開幕する。
+ * マイチームが指名しなかった新外国人候補選手は他球団（CPU）が自由に獲得する。
  */
 export function finalizeOffseason(state: GameState): GameState {
   const draft = state.draft;
   const myTeamId = state.myTeamId;
   let teams = state.teams;
+  const newlyAcquiredIds = new Set<string>();
 
   if (draft) {
     // 指名選手を各球団へ二軍登録で追加
@@ -567,6 +589,7 @@ export function finalizeOffseason(state: GameState): GameState {
       const teamId = draft.picked[p.id];
       if (!teamId) continue;
       (byTeam.get(teamId) ?? byTeam.set(teamId, []).get(teamId)!).push(p);
+      newlyAcquiredIds.add(p.id);
     }
     teams = teams.map((t) => {
       const adds = byTeam.get(t.id);
@@ -580,6 +603,7 @@ export function finalizeOffseason(state: GameState): GameState {
   // 外国人スカウトで獲得した選手をマイチームへ二軍登録で追加
   const signed = state.foreignScout?.signed ?? [];
   if (myTeamId && signed.length > 0) {
+    for (const p of signed) newlyAcquiredIds.add(p.id);
     teams = teams.map((t) => {
       if (t.id !== myTeamId) return t;
       const rosterLevel: Record<string, RosterLevel> = { ...t.rosterLevel };
@@ -587,6 +611,81 @@ export function finalizeOffseason(state: GameState): GameState {
       return { ...t, players: [...t.players, ...signed], rosterLevel };
     });
   }
+
+  // マイチームが指名しなかった新外国人候補を他球団（CPU）が自由に獲得
+  const mySignedIds = new Set(signed.map((p) => p.id));
+  const unsignedPool: Player[] = [];
+  if (state.foreignScout?.pool) {
+    for (const list of Object.values(state.foreignScout.pool)) {
+      if (list) {
+        for (const p of list) {
+          if (!mySignedIds.has(p.id)) {
+            unsignedPool.push(p);
+          }
+        }
+      }
+    }
+  }
+
+  if (unsignedPool.length > 0) {
+    const waiver = state.draft?.waiverOrder.filter((id) => id !== myTeamId) ?? [];
+    const cpuTeamIds = [
+      ...waiver,
+      ...teams.filter((t) => t.id !== myTeamId && !waiver.includes(t.id)).map((t) => t.id),
+    ];
+
+    const remainingPool = [...unsignedPool];
+    const cpuSignedByTeam = new Map<string, Player[]>();
+
+    for (let round = 1; round <= 3; round++) {
+      let anyPicked = false;
+      for (const teamId of cpuTeamIds) {
+        if (remainingPool.length === 0) break;
+        const team = teams.find((t) => t.id === teamId);
+        if (!team) continue;
+
+        const currentAdds = cpuSignedByTeam.get(teamId) ?? [];
+        const currentForeignCount = team.players.filter((p) => p.is_foreign).length + currentAdds.length;
+        if (currentForeignCount >= 5) continue;
+
+        let signChance = 0;
+        if (currentForeignCount < 3) signChance = 1.0;
+        else if (currentForeignCount === 3) signChance = 0.85;
+        else if (currentForeignCount === 4) signChance = 0.5;
+
+        if (Math.random() > signChance) continue;
+
+        const tempTeam: Team = {
+          ...team,
+          players: [...team.players, ...currentAdds],
+        };
+        const pick = pickForCpu(tempTeam, remainingPool);
+        if (!pick) continue;
+
+        const idx = remainingPool.findIndex((p) => p.id === pick.id);
+        if (idx !== -1) remainingPool.splice(idx, 1);
+
+        currentAdds.push(pick);
+        cpuSignedByTeam.set(teamId, currentAdds);
+        newlyAcquiredIds.add(pick.id);
+        anyPicked = true;
+      }
+      if (!anyPicked) break;
+    }
+
+    // CPU球団に獲得外国人を二軍登録で反映
+    teams = teams.map((t) => {
+      if (t.id === myTeamId) return t;
+      const adds = cpuSignedByTeam.get(t.id);
+      if (!adds || adds.length === 0) return t;
+      const rosterLevel: Record<string, RosterLevel> = { ...t.rosterLevel };
+      for (const p of adds) rosterLevel[p.id] = 'FARM';
+      return { ...t, players: [...t.players, ...adds], rosterLevel };
+    });
+  }
+
+  // CPU球団の保有枠（50名）を整える（超過分を二軍から整理）
+  teams = teams.map((t) => (t.id === myTeamId ? t : pruneCpuRoster(t, newlyAcquiredIds)));
 
   // 翌シーズン開幕（year+1・日程/成績リセット・オーダー再編成）
   return startNextSeason(state, teams);

@@ -4,6 +4,12 @@ import { simulateGame, type SideInput } from './simulate';
 export type SeriesKind = 'CS_FIRST' | 'CS_FINAL' | 'JAPAN';
 export type PostseasonStage = 'CS_FIRST' | 'CS_FINAL' | 'JAPAN' | 'DONE';
 
+export interface SeriesGameScore {
+  homeScore: number;
+  awayScore: number;
+  draw?: boolean;
+}
+
 /** 1シリーズの状態（homeが上位／ホーム球団） */
 export interface SeriesState {
   kind: SeriesKind;
@@ -22,6 +28,10 @@ export interface SeriesState {
    * CSは全試合上位ホームなので使わない（undefined）。
    */
   japanHomePattern?: '1267' | '345';
+  /** アドバンテージ1勝の有無（CSファイナル） */
+  advantage?: boolean;
+  /** 各試合のスコア（上位球団視点: homeScore=series.homeId, awayScore=series.awayId） */
+  gameScores?: SeriesGameScore[];
 }
 
 /** ポストシーズン全体の状態 */
@@ -44,15 +54,15 @@ export interface PostseasonState {
  */
 export function makeSeries(kind: SeriesKind, homeId: string, awayId: string, advantage = false): SeriesState {
   if (kind === 'CS_FIRST') {
-    return { kind, homeId, awayId, homeWins: 0, awayWins: 0, target: 2, gamesPlayed: 0, done: false, winnerId: null };
+    return { kind, homeId, awayId, homeWins: 0, awayWins: 0, target: 2, gamesPlayed: 0, done: false, winnerId: null, gameScores: [] };
   }
   if (kind === 'CS_FINAL') {
     // ゲーム差5以上のときのみ1位に1勝のアドバンテージ
-    return { kind, homeId, awayId, homeWins: advantage ? 1 : 0, awayWins: 0, target: 4, gamesPlayed: 0, done: false, winnerId: null };
+    return { kind, homeId, awayId, homeWins: advantage ? 1 : 0, awayWins: 0, target: 4, gamesPlayed: 0, done: false, winnerId: null, advantage, gameScores: [] };
   }
   // 日本シリーズ: ホーム配分パターンをランダムに決定
   const pattern: '1267' | '345' = Math.random() < 0.5 ? '1267' : '345';
-  return { kind, homeId, awayId, homeWins: 0, awayWins: 0, target: 4, gamesPlayed: 0, done: false, winnerId: null, japanHomePattern: pattern };
+  return { kind, homeId, awayId, homeWins: 0, awayWins: 0, target: 4, gamesPlayed: 0, done: false, winnerId: null, japanHomePattern: pattern, gameScores: [] };
 }
 
 /**
@@ -103,6 +113,13 @@ export function playSeriesGame(
 
   const res = simulateGame(side(gameAwayId), side(gameHomeId), rng);
   series.gamesPlayed++;
+
+  // 上位(homeId)球団視点のスコアを記録
+  const homeScore = gameHomeId === series.homeId ? res.homeScore : res.awayScore;
+  const awayScore = gameHomeId === series.homeId ? res.awayScore : res.homeScore;
+  series.gameScores ??= [];
+  series.gameScores.push({ homeScore, awayScore, draw: res.draw });
+
   if (!res.draw) {
     if (res.winnerId === series.homeId) series.homeWins++;
     else series.awayWins++;

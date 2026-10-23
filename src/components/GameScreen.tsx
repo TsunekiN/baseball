@@ -42,6 +42,8 @@ interface Props {
   onFinishForeignScout: () => void;
   onStartNextSeason: () => void;
   onHofDecide: (hof: HallOfFamer, accept: boolean) => void;
+  onRestartDraft?: () => void;
+  debugMode?: boolean;
 }
 
 export function GameScreen({
@@ -72,6 +74,8 @@ export function GameScreen({
   onSignForeign,
   onFinishForeignScout,
   onHofDecide,
+  onRestartDraft,
+  debugMode,
 }: Props) {
   const teamMap = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
 
@@ -104,6 +108,8 @@ export function GameScreen({
           onScout={onScoutDraft}
           onFinishDraft={onFinishDraft}
           onCompleteAll={onStartForeignScout}
+          onRestartDraft={onRestartDraft}
+          debugMode={debugMode}
         />
       );
     }
@@ -322,7 +328,10 @@ function SeriesCard({
   const winner = series.winnerId ? teamMap.get(series.winnerId) : null;
   return (
     <div className="series-card">
-      <div className="series-label">{label}（{series.target}勝先勝）</div>
+      <div className="series-label">
+        {label}（{series.target}勝先勝）
+        {series.advantage && <span className="series-adv-pill">Adv.1勝</span>}
+      </div>
       <div className="series-body">
         <span className="team-badge sm" style={{ background: home.colorPrimary }}>
           {home.markChar}
@@ -337,6 +346,15 @@ function SeriesCard({
         </span>
       </div>
       {series.done && winner && <div className="series-winner">{winner.nickName} 勝利</div>}
+      {series.gameScores && series.gameScores.length > 0 && (
+        <div className="series-games">
+          {series.gameScores.map((g, i) => (
+            <span key={i} className="series-game-pill">
+              {i + 1}戦 {g.homeScore}-{g.awayScore}{g.draw ? '分' : ''}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Player, Team, TeamStrength } from './types';
+import { getPitcherStuff, type Player, type Team, type TeamStrength } from './types';
 
 /** 平均値を求める（空なら0） */
 function avg(nums: number[]): number {
@@ -8,13 +8,11 @@ function avg(nums: number[]): number {
 
 /**
  * 投手の総合的な能力値。
- * 球速はkm/hなので能力値スケール(1-100+)へ換算してから加重平均。
- * 換算: 130km/h=約20, 162km/h=約100 の線形近似（(kmh-125)*2.5 相当）。
+ * 球威 : 変化球 : 制球 = 0.35 : 0.35 : 0.30 の加重。
  */
 function pitcherRating(p: Player): number {
-  const veloScore = (p.velocity - 125) * 2.5;
-  // 球速 : 変化球 : 制球 = 0.35 : 0.35 : 0.30 の加重
-  return veloScore * 0.35 + p.breaking * 0.35 + p.control * 0.3;
+  const stuff = getPitcherStuff(p);
+  return stuff * 0.35 + p.breaking * 0.35 + p.control * 0.3;
 }
 
 /**

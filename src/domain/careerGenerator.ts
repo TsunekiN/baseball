@@ -1,4 +1,4 @@
-import type { Player } from './types';
+import { calcStuff, type Player } from './types';
 import type { PlayerCareer, SeasonStatLine, AbilitySnapshot } from './gameState';
 import type { SeasonBatting, SeasonPitching } from '../match/matchStats';
 import { emptyBatting, emptyPitching } from '../match/matchStats';
@@ -39,13 +39,16 @@ function generatePastSeasonStats(
   const primeFactor = Math.max(0.65, Math.min(1.0, 0.75 + (ageAtYear - 18) * 0.035));
 
   // 能力スナップショット
+  const pastVelo = Math.max(120, Math.round(player.velocity - yearsAgo * 0.4));
+  const pastStuff = isPitcher ? (player.stuff != null ? Math.max(1, Math.round(player.stuff * primeFactor)) : calcStuff(pastVelo)) : 15;
   const abilities: AbilitySnapshot = {
     age: ageAtYear,
     contact: Math.round(player.contact * primeFactor),
     power: Math.round(player.power * primeFactor),
     speed: Math.round(player.speed * Math.min(1.1, 1.15 - (ageAtYear - 18) * 0.012)),
     defense: Math.round(player.defense * primeFactor),
-    velocity: Math.max(120, Math.round(player.velocity - yearsAgo * 0.4)),
+    stuff: pastStuff,
+    velocity: pastVelo,
     breaking: Math.round(player.breaking * primeFactor),
     control: Math.round(player.control * primeFactor),
     stamina: Math.round(player.stamina * primeFactor),

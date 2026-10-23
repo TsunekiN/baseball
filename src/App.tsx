@@ -7,6 +7,7 @@ import {
   clearGameState,
   saveGameState,
   getLocalSavedAt,
+  hasLocalGameState,
   type AdvanceUnit,
   type GameState,
 } from './domain/gameState';
@@ -31,15 +32,17 @@ import {
 import type { Position } from './domain/types';
 import { advancePostseason } from './match/postseasonProgress';
 import { initPostseason, type PostseasonState } from './match/postseason';
-import { buildStandings, pennantMagicInfo } from './domain/standings';
-import { weekDef } from './domain/schedule';
+import { buildStandings } from './domain/standings';
+import { detectMilestoneNotices } from './domain/milestones';
 import type { HallOfFamer } from './domain/stats';
 import type { GameResult } from './match/matchTypes';
 import { StartScreen } from './components/StartScreen';
 import { MainScreen } from './components/MainScreen';
+import { SpringCampModal } from './components/SpringCampModal';
 import { HeaderSchedule } from './components/HeaderSchedule';
 import { LoginScreen } from './components/LoginScreen';
 import { useTheme } from './hooks/useTheme';
+import { useDebugMode } from './hooks/useDebugMode';
 import type { User } from 'firebase/auth';
 import {
   subscribeAuthState,
@@ -61,7 +64,10 @@ export default function App() {
   const [injuryAlerts, setInjuryAlerts] = useState<string[]>([]);
   // お知らせ通知（開幕・交流戦・CS・日本シリーズ。緑枠で表示）
   const [noticeAlerts, setNoticeAlerts] = useState<string[]>([]);
+  // 春季キャンプ覚醒モーダルの表示制御
+  const [showSpringCamp, setShowSpringCamp] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const { debugMode, toggleDebugMode, resetDebugMode } = useDebugMode();
 
   // 認証済みか、セーブデータが存在するか管理
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -69,8 +75,10 @@ export default function App() {
   const [cloudSaving, setCloudSaving] = useState(false);
   // クラウド保存エラーメッセージ（null = エラーなし）
   const [cloudSaveError, setCloudSaveError] = useState<string | null>(null);
-  // クラウドからの初回読み込みが完了したかどうかのフラグ
+  // クラウドからの初回読み込み・比較が完了したかどうかのフラグ
   const isCloudLoadedRef = useRef(false);
+  // 最後にローカルストレージへ保存した状態（不要な再保存・タイムスタンプ上書きを防止）
+  const lastSavedGameRef = useRef<GameState>(game);
   // 常に最新の game を参照するための ref（stale closure 防止）
   const gameRef = useRef(game);
   useEffect(() => {
@@ -85,48 +93,93 @@ export default function App() {
       if (user) {
         // ログイン時: クラウドロード完了前の自動保存を防ぐ
         isCloudLoadedRef.current = false;
-        console.log('[Auth] Starting cloud load...');
+        console.log('[Auth] Starting cloud load & compare...');
         try {
           const result = await loadGameStateFromCloud(user.uid);
-          console.log('[Auth] Cloud load result:', result ? `year=${result.state.year}, week=${result.state.weekIndex}, updatedAt=${result.updatedAt}` : 'null');
+          console.log(
+            '[Auth] Cloud load result:',
+            result
+              ? `year=${result.state.year}, week=${result.state.weekIndex}, updatedAt=${result.updatedAt}`
+              : 'null',
+          );
 
-          if (result) {
-            // ローカルとクラウドのタイムスタンプを比較して新しい方を使う
-            const localSavedAt = getLocalSavedAt();
-            const cloudUpdatedAt = result.updatedAt;
-            const localIsNewer =
-              !!localSavedAt && !!cloudUpdatedAt &&
-              new Date(localSavedAt) > new Date(cloudUpdatedAt);
+          const hasLocal = hasLocalGameState();
+          const localSavedAt = getLocalSavedAt();
+          const cloudUpdatedAt = result?.updatedAt;
 
-            console.log('[Auth] localSavedAt:', localSavedAt, '/ cloudUpdatedAt:', cloudUpdatedAt, '/ localIsNewer:', localIsNewer);
+          console.log('[Auth] hasLocal:', hasLocal, '/ localSavedAt:', localSavedAt, '/ cloudUpdatedAt:', cloudUpdatedAt);
+
+          if (result && hasLocal) {
+            // ローカルにもクラウドにもデータがある場合: タイムスタンプを比較して新しい方を読み込む
+            const localTime = localSavedAt ? new Date(localSavedAt).getTime() : 0;
+            const cloudTime = cloudUpdatedAt ? new Date(cloudUpdatedAt).getTime() : 0;
+            const validLocalTime = !isNaN(localTime) && localTime > 0;
+            const validCloudTime = !isNaN(cloudTime) && cloudTime > 0;
+
+            let localIsNewer = false;
+            if (validLocalTime && validCloudTime) {
+              localIsNewer = localTime > cloudTime;
+            } else if (validLocalTime) {
+              localIsNewer = true;
+            } else if (validCloudTime) {
+              localIsNewer = false;
+            } else {
+              // どちらもタイムスタンプ無効な場合は進行度（年・週・消化試合数）を比較
+              const currentLocal = gameRef.current;
+              if (currentLocal.year > result.state.year) {
+                localIsNewer = true;
+              } else if (currentLocal.year === result.state.year) {
+                localIsNewer = currentLocal.gameCursor > result.state.gameCursor;
+              } else {
+                localIsNewer = false;
+              }
+            }
+
+            console.log(
+              '[Auth] Comparison result: localIsNewer =',
+              localIsNewer,
+              `(localSavedAt: ${localSavedAt}, cloudUpdatedAt: ${cloudUpdatedAt})`,
+            );
 
             if (localIsNewer) {
-              // ローカルの方が新しい → ローカルをそのまま使用し、クラウドへ同期
-              console.log('[Auth] Local is newer → keeping local state, syncing to cloud.');
-              try {
-                await saveGameStateToCloud(user.uid, gameRef.current);
-              } catch (syncErr) {
-                console.warn('[Auth] Failed to sync local→cloud on login:', syncErr);
-              }
+              // ローカルの方が新しい → ローカル状態を維持（クラウドへは自動保存せず手動保存のみ）
+              console.log('[Auth] Local cache is newer → keeping local state.');
             } else {
-              // クラウドの方が新しい（または同等）→ クラウドデータを使う
-              console.log('[Auth] Cloud is newer or equal → using cloud data.');
+              // クラウドの方が新しい（または同等） → クラウドデータを読み込んで適用、ローカルキャッシュも同期
+              console.log('[Auth] Cloud data is newer or equal → loading cloud data.');
               setGame(result.state);
-              saveGameState(result.state); // ローカルキャッシュも同期
+              saveGameState(result.state, result.updatedAt);
+              lastSavedGameRef.current = result.state;
+              setLastResults([]);
+              setInjuryAlerts([]);
+              setNoticeAlerts([]);
+              setInjuryBadge(false);
             }
+          } else if (result && !hasLocal) {
+            // ローカルにプレイ中データがなくクラウドに有効データがある場合 → クラウドデータを読み込む
+            console.log('[Auth] Valid cloud data found and no local active game. Loading cloud data.');
+            setGame(result.state);
+            saveGameState(result.state, result.updatedAt);
+            lastSavedGameRef.current = result.state;
+            setLastResults([]);
+            setInjuryAlerts([]);
+            setNoticeAlerts([]);
+            setInjuryBadge(false);
+          } else if (!result && hasLocal) {
+            // クラウドにデータがなくローカルにデータがある場合 → ローカルデータを維持（クラウドへは自動保存せず手動保存のみ）
+            console.log('[Auth] Cloud data not found. Keeping local cache.');
           } else {
-            // クラウドにデータなし（新規ユーザーまたはバージョン不一致）
-            // ローカルデータをそのまま維持（useStateで既に読み込み済み）
-            console.log('[Auth] No valid cloud data → keeping local state (new user or version mismatch).');
+            // どちらにもデータがない（新規ユーザー）
+            console.log('[Auth] Neither local nor cloud data exists. Starting fresh.');
           }
         } catch (err) {
           // ネットワークエラー等でクラウドロードが完全に失敗
           // ローカルデータをそのまま使い、データを上書きしない
           console.error('[Auth] Cloud load failed (network error). Using local data.', err);
         }
-        // クラウドからのロードが完了してから自動保存を許可する
+        // クラウドからのロード・比較が完了してからローカル自動保存を許可する
         isCloudLoadedRef.current = true;
-        console.log('[Auth] Cloud load complete. Auto-save enabled.');
+        console.log('[Auth] Cloud load/compare complete. Auto-save enabled.');
       } else {
         // ログアウト時: フラグをリセット
         isCloudLoadedRef.current = false;
@@ -171,39 +224,25 @@ export default function App() {
     }));
   }, [game.teams, game.injuries, game.phase]);
 
-  // 年度初めのクラウド保存を済ませた年度（同一年度での重複保存を防ぐ）
-  const seasonStartSavedYearRef = useRef<number | null>(null);
-
-  // 状態が変わるたびにローカル保存（無料）。クラウド保存は年度初め（4月1週・最初の試合前）のみ。
-  // それ以外のクラウド保存は「現在のデータを保存」ボタン（手動）のみ。
+  // 状態が変わるたびにローカル保存（無料）。
+  // ※ クラウド保存は「現在のデータを保存」ボタン（手動）のみ行い、自動では保存しない。
   useEffect(() => {
+    // ログイン＆クラウド比較が完了する前はローカル保存しない（起動時のタイムスタンプ汚染を防止）
+    if (!isCloudLoadedRef.current) return;
+    if (game === lastSavedGameRef.current) return;
+
     saveGameState(game);
-
-    const isSeasonStart =
-      game.phase === 'REGULAR' &&
-      game.weekIndex === 0 &&
-      game.gameCursor === 0 &&
-      !game.postseason &&
-      !!game.myTeamId;
-
-    if (authUser && isCloudLoadedRef.current && isSeasonStart && seasonStartSavedYearRef.current !== game.year) {
-      console.log('[AutoSave] Season-start cloud save. year:', game.year);
-      seasonStartSavedYearRef.current = game.year;
-      setCloudSaving(true);
-      saveGameStateToCloud(authUser.uid, game)
-        .catch((err) => {
-          // 失敗時は次回の機会に再試行できるよう解除
-          seasonStartSavedYearRef.current = null;
-          console.error('[AutoSave] Cloud save failed:', err);
-        })
-        .finally(() => setCloudSaving(false));
-    }
-  }, [game, authUser]);
+    lastSavedGameRef.current = game;
+  }, [game]);
 
   // タブを閉じる直前にローカルストレージへ確実に保存する
   useEffect(() => {
     const handleBeforeUnload = () => {
-      saveGameState(gameRef.current);
+      // クラウドロード完了後、かつ未保存の変更がある場合のみ
+      if (isCloudLoadedRef.current && gameRef.current !== lastSavedGameRef.current) {
+        saveGameState(gameRef.current);
+        lastSavedGameRef.current = gameRef.current;
+      }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -224,20 +263,25 @@ export default function App() {
   // 全データを削除して初期化（セーブデータ消去＋新規ゲーム生成）
   const handleReset = async () => {
     clearGameState();
+    resetDebugMode();
     if (authUser) {
       await clearGameStateFromCloud(authUser.uid);
     }
-    setGame(createNewGameState());
+    const fresh = createNewGameState();
+    setGame(fresh);
+    lastSavedGameRef.current = fresh;
   };
 
   // 現在のデータを明示的に保存（ローカルおよびクラウド）
   const handleManualSave = async () => {
-    saveGameState(game);
+    const now = new Date().toISOString();
+    saveGameState(game, now);
+    lastSavedGameRef.current = game;
     if (authUser) {
       setCloudSaving(true);
       setCloudSaveError(null);
       try {
-        await saveGameStateToCloud(authUser.uid, game);
+        await saveGameStateToCloud(authUser.uid, game, now);
       } catch (err) {
         console.error('[ManualSave] Cloud save failed:', err);
         setCloudSaveError('クラウドへの保存に失敗しました。ネットワーク接続を確認してください。');
@@ -259,13 +303,13 @@ export default function App() {
         return { success: false, message: 'セーブデータがありません' };
       }
       setGame(result.state);
-      saveGameState(result.state);
+      saveGameState(result.state, result.updatedAt);
+      lastSavedGameRef.current = result.state;
       setLastResults([]);
       setInjuryAlerts([]);
       setNoticeAlerts([]);
       setInjuryBadge(false);
       isCloudLoadedRef.current = true;
-      seasonStartSavedYearRef.current = result.state.year;
       return { success: true, message: `${result.state.year}年のデータを読込` };
     } catch (err) {
       console.error('[ManualCloudLoad] Failed to load from cloud:', err);
@@ -342,7 +386,11 @@ export default function App() {
         postseasonStats: out.postseasonStats,
         postRotationIdx: out.postRotationIdx,
       }));
-      if (out.myResults.length > 0) setLastResults(out.myResults);
+      if (out.myResults.length > 0) {
+        setLastResults(out.myResults);
+      } else {
+        setLastResults([]);
+      }
       return;
     }
     // 日本シリーズ終了（DONE）でまだオフシーズン未処理なら、オフシーズン処理を実行
@@ -357,11 +405,6 @@ export default function App() {
     }
 
     // レギュラーシーズン
-    const wasInterleague = weekDef(game.weekIndex).kind === 'INTERLEAGUE';
-    // 進行前のマイチームのマジック情報（点灯/確定の遷移の瞬間だけ通知するため）
-    const magicBefore =
-      myTeam ? pennantMagicInfo(game.teams, myTeam.league, game.records, game.schedule, game.gameCursor) : null;
-    const myMagicBefore = magicBefore && magicBefore.teamId === myTeam?.id ? magicBefore : null;
     const out = advanceMatches(game);
     let postseason: PostseasonState | null = game.postseason;
     if (out.finished && !postseason) {
@@ -396,40 +439,24 @@ export default function App() {
     if (out.myResults.length > 0) setLastResults(out.myResults);
     notifyInjuries(out.myResults);
 
-    // お知らせ（緑枠）: 開幕・交流戦・CS開幕。優先度は CS > 交流戦 > 開幕。
-    const nowInterleague = !out.finished && weekDef(out.weekIndex).kind === 'INTERLEAGUE';
-    const notices: string[] = [];
-    // 優勝マジックのお知らせ: 点灯の瞬間＝「M{N}が点灯！」、確定の瞬間＝「優勝決定！」
-    if (myTeam) {
-      const magicAfter = pennantMagicInfo(game.teams, myTeam.league, out.records, game.schedule, out.gameCursor);
-      const myMagicAfter = magicAfter && magicAfter.teamId === myTeam.id ? magicAfter : null;
-      const leagueName = myTeam.league === 'CENTRAL' ? 'セ・リーグ' : 'パ・リーグ';
-      if (myMagicAfter) {
-        const beforeClinched = !!myMagicBefore && myMagicBefore.magic <= 0;
-        if (myMagicAfter.magic <= 0) {
-          // 優勝確定（M≤0）。確定済みでなかった場合のみ通知。
-          if (!beforeClinched) {
-            notices.push(`${myTeam.name}が${leagueName}優勝決定！`);
-          }
-        } else {
-          // マジック点灯中（M≥1）。前が非点灯だった場合のみ通知。
-          if (!myMagicBefore) {
-            notices.push(`${myTeam.name}にM${myMagicAfter.magic}が点灯！`);
-          }
-        }
-      }
+    // お知らせ通知（投手の通算100/150/200...勝・セーブ、野手の通算200/300...本塁打、通算1000/1500...安打。マイチームの選手のみ）
+    const notices = detectMilestoneNotices({
+      teams: game.teams,
+      playerCareers: game.playerCareers,
+      beforeStats: game.playerStats,
+      afterStats: out.playerStats,
+      targetTeamId: game.myTeamId,
+    });
+    if (notices.length > 0) {
+      setNoticeAlerts(notices);
     }
-    // CS開幕・ペナント開幕の通知は出さない（開幕は試合画面に大きく表示する）。交流戦のみ通知。
-    if (!wasInterleague && nowInterleague) {
-      notices.push(`${game.year}年度交流戦スタート！`);
-    }
-    if (notices.length > 0) setNoticeAlerts(notices);
   };
 
   // オフシーズン結果を確認し終えて翌シーズンを開幕する（ドラフト完了後に呼ばれる）
   const handleStartNextSeason = () => {
     setLastResults([]);
     setGame((prev) => finalizeOffseason(prev));
+    setShowSpringCamp(true);
   };
 
   // ドラフト会議の開始
@@ -481,6 +508,12 @@ export default function App() {
   const handleFinishForeignScout = () => {
     setLastResults([]);
     setGame((prev) => finalizeOffseason(finishForeignScout(prev)));
+    setShowSpringCamp(true);
+  };
+
+  // 春季キャンプ覚醒モーダルを閉じたときの処理
+  const handleCloseSpringCamp = () => {
+    setShowSpringCamp(false);
   };
 
   // 自由契約（戦力外通告）
@@ -582,6 +615,7 @@ export default function App() {
             onUpdateOrder={handleUpdateOrder}
             onAdvance={handleAdvance}
             onStartDraft={handleStartDraft}
+            onRestartDraft={handleStartDraft}
             onPickDraft={handlePickDraft}
             onLotteryDraw={handleLotteryDraw}
             onConfirmLottery={handleConfirmLottery}
@@ -601,6 +635,8 @@ export default function App() {
             onCloseInjuryAlerts={() => setInjuryAlerts([])}
             noticeAlerts={noticeAlerts}
             onCloseNoticeAlerts={() => setNoticeAlerts([])}
+            debugMode={debugMode}
+            onToggleDebugMode={toggleDebugMode}
           />
         ) : (
           <StartScreen
@@ -611,6 +647,13 @@ export default function App() {
           />
         )}
       </main>
+
+      {showSpringCamp && game.springCampReport && (
+        <SpringCampModal
+          report={game.springCampReport}
+          onClose={handleCloseSpringCamp}
+        />
+      )}
     </>
   );
 }

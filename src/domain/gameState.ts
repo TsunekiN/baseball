@@ -1,4 +1,4 @@
-import type { Player, Team, TeamOrder } from './types';
+import { calcStuff, calcVelocity, type Player, type Team, type TeamOrder } from './types';
 import { generateAllTeams } from './teamFactory';
 import { buildBestOrder, normalizeRoster, FIRST_BATTERS, FIRST_PITCHERS } from './orderFactory';
 import { generateSeason, type ScheduleGame } from './seasonSchedule';
@@ -10,6 +10,7 @@ import type { TitleCounts, HallOfFamer } from './stats';
 import type { OffseasonReport } from './offseason';
 import { backfillMissingCareers, sanitizePlayerCareers, generatePlayerPastCareer } from './careerGenerator';
 import { generateUniquePlayerId } from './playerFactory';
+import { applySpringCamp, type SpringCampReport } from './growthEngine';
 
 const STORAGE_KEY = 'pennant-game-state';
 const SAVED_AT_KEY = 'pennant-game-state-saved-at';
@@ -103,6 +104,7 @@ export interface AbilitySnapshot {
   power: number;
   speed: number;
   defense: number;
+  stuff?: number;
   velocity: number;
   breaking: number;
   control: number;
@@ -222,6 +224,8 @@ export interface GameState {
    * 「今年度の能力増減」表示に使う（現在値との差分）。全球団の全選手を対象。
    */
   seasonStartAbilities: Record<string, AbilitySnapshot>;
+  /** 直近の春季キャンプ覚醒結果（開幕時に表示、未確認時は非null） */
+  springCampReport?: SpringCampReport | null;
 }
 
 /** 全チームの全選手について、現時点の能力スナップショットを作る */
@@ -231,7 +235,7 @@ export function snapshotAbilities(teams: Team[]): Record<string, AbilitySnapshot
     for (const p of t.players) {
       snap[p.id] = {
         contact: p.contact, power: p.power, speed: p.speed, defense: p.defense,
-        velocity: p.velocity, breaking: p.breaking, control: p.control, stamina: p.stamina,
+        stuff: p.stuff, velocity: p.velocity, breaking: p.breaking, control: p.control, stamina: p.stamina,
         age: p.age,
       };
     }
@@ -286,6 +290,7 @@ export function createNewGameState(): GameState {
     starterLastDay: {},
     relieverConsecutive: {},
     postRotationIdx: {},
+    springCampReport: null,
     seasonStartAbilities: snapshotAbilities(teams),
   };
 }
@@ -300,11 +305,16 @@ export { normalizeRoster, FIRST_BATTERS, FIRST_PITCHERS };
  * orders は既存を維持しつつ、保有選手に存在しなくなったスロットは再編成する。
  */
 export function startNextSeason(prev: GameState, teamsIn: Team[]): GameState {
+  const nextYear = prev.year + 1;
+
+  // 開幕直前の春季キャンプ覚醒イベント（自チームの25歳以下の若手から野手1名・投手1名が覚醒）
+  const { teams: campTeams, report: campReport } = applySpringCamp(teamsIn, nextYear, prev.myTeamId);
+
   // オフシーズンで全快扱い＆一軍枠の正規化:
   //  - 故障者(IL)は二軍(FARM)へ戻す
   //  - 引退・新加入で崩れた一軍(FIRST)の人数を規定（野手15・投手14）に補正する。
   //    不足分は二軍から能力順に昇格、過剰分は能力下位から降格。
-  const teams = teamsIn.map((t) => normalizeRoster(t));
+  const teams = campTeams.map((t) => normalizeRoster(t));
 
   // 翌シーズンはロースター（一軍/二軍）が組み替わるため、オーダーは全チーム再編成する。
   const orders: Record<string, TeamOrder> = {};
@@ -323,7 +333,7 @@ export function startNextSeason(prev: GameState, teamsIn: Team[]): GameState {
     playerStats: {},
     postseasonStats: {}, // 翌シーズンのポストシーズン成績はリセット
     postseason: null,
-    year: prev.year + 1,
+    year: nextYear,
     phase: 'REGULAR',
     offseasonStage: null,
     draft: null,
@@ -333,6 +343,7 @@ export function startNextSeason(prev: GameState, teamsIn: Team[]): GameState {
     starterLastDay: {}, // ローテ状態も翌シーズンでリセット
     relieverConsecutive: {}, // 連投状態もリセット
     postRotationIdx: {}, // ポストシーズンローテも翌シーズンでリセット
+    springCampReport: campReport,
     seasonStartAbilities: snapshotAbilities(teams), // 開幕時能力を記録（今季増減の基準）
     // 履歴・タイトル・殿堂はそのまま引き継ぎ（呼び出し側で更新済み）
   };
@@ -350,11 +361,21 @@ export function sanitizeGameState(state: GameState): GameState {
     return state;
   }
 
-  // 1. 全球団の選手IDの重複検出と再採番
+  // 1. 全球団の選手IDの重複検出と再採番、および球威・球速の整合性補正
   const seenIds = new Set<string>();
 
   for (const team of state.teams) {
     for (const player of team.players) {
+      // 投手の球威(stuff)・球速(velocity)の整合性担保・移行処理
+      if (player.type === 'PITCHER') {
+        if (player.stuff == null || isNaN(player.stuff)) {
+          player.stuff = calcStuff(player.velocity);
+        }
+        player.velocity = calcVelocity(player.stuff);
+      } else if (player.stuff == null || isNaN(player.stuff)) {
+        player.stuff = 15;
+      }
+
       if (seenIds.has(player.id)) {
         const oldId = player.id;
         const newId = generateUniquePlayerId();
@@ -383,6 +404,7 @@ export function sanitizeGameState(state: GameState): GameState {
             power: player.power,
             speed: player.speed,
             defense: player.defense,
+            stuff: player.stuff,
             velocity: player.velocity,
             breaking: player.breaking,
             control: player.control,
@@ -396,9 +418,15 @@ export function sanitizeGameState(state: GameState): GameState {
     }
   }
 
-  // ドラフト候補・外国人候補プール内のID重複も防止
+  // ドラフト候補・外国人候補プール内のID重複も防止および球威補正
   if (state.draft?.pool) {
     for (const p of state.draft.pool) {
+      if (p.type === 'PITCHER') {
+        if (p.stuff == null || isNaN(p.stuff)) p.stuff = calcStuff(p.velocity);
+        p.velocity = calcVelocity(p.stuff);
+      } else if (p.stuff == null || isNaN(p.stuff)) {
+        p.stuff = 15;
+      }
       if (seenIds.has(p.id)) {
         p.id = generateUniquePlayerId();
       }
@@ -409,6 +437,12 @@ export function sanitizeGameState(state: GameState): GameState {
     for (const list of Object.values(state.foreignScout.pool)) {
       if (Array.isArray(list)) {
         for (const p of list) {
+          if (p.type === 'PITCHER') {
+            if (p.stuff == null || isNaN(p.stuff)) p.stuff = calcStuff(p.velocity);
+            p.velocity = calcVelocity(p.stuff);
+          } else if (p.stuff == null || isNaN(p.stuff)) {
+            p.stuff = 15;
+          }
           if (seenIds.has(p.id)) {
             p.id = generateUniquePlayerId();
           }
@@ -476,6 +510,14 @@ export function sanitizeGameState(state: GameState): GameState {
     }
   }
 
+  if (!Array.isArray(state.hallOfFame)) {
+    state.hallOfFame = [];
+  }
+
+  if (state.springCampReport === undefined) {
+    state.springCampReport = null;
+  }
+
   return state;
 }
 
@@ -485,19 +527,29 @@ export function loadGameState(): GameState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as GameState;
-    if (parsed.version !== SCHEMA_VERSION) return null;
+    // バージョンが存在し、現在以下のバージョンであればサニタイズして最新版として復元
+    if (typeof parsed.version !== 'number' || parsed.version > SCHEMA_VERSION) {
+      return null;
+    }
     if (!Array.isArray(parsed.teams) || parsed.teams.length === 0) return null;
+    parsed.version = SCHEMA_VERSION;
     return sanitizeGameState(parsed);
   } catch {
     return null;
   }
 }
 
-/** localStorage へ保存（保存日時も記録） */
-export function saveGameState(state: GameState): void {
+/** localStorage に有効なプレイ中セーブデータがあるかどうか（マイチーム選択済み） */
+export function hasLocalGameState(): boolean {
+  const state = loadGameState();
+  return state !== null && state.myTeamId !== null;
+}
+
+/** localStorage へ保存（保存日時も記録。savedAt が指定されればそれを使用、省略時は現在日時） */
+export function saveGameState(state: GameState, savedAt?: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    localStorage.setItem(SAVED_AT_KEY, new Date().toISOString());
+    localStorage.setItem(SAVED_AT_KEY, savedAt ?? new Date().toISOString());
   } catch {
     // 保存失敗は致命的ではないので握りつぶす（容量超過など）
   }
@@ -511,6 +563,7 @@ export function getLocalSavedAt(): string | null {
 /** 保存データを消去（タイトルへ戻る/リセット用） */
 export function clearGameState(): void {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(SAVED_AT_KEY);
 }
 
 /** マイチームを取得 */

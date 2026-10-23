@@ -1,11 +1,12 @@
-import type {
-  FieldPosition,
-  LineupSlot,
-  PitcherAssignment,
-  Player,
-  RosterLevel,
-  Team,
-  TeamOrder,
+import {
+  getPitcherStuff,
+  type FieldPosition,
+  type LineupSlot,
+  type PitcherAssignment,
+  type Player,
+  type RosterLevel,
+  type Team,
+  type TeamOrder,
 } from './types';
 
 // ============================================================
@@ -35,14 +36,14 @@ export function batterOverall(p: Player): number {
   return p.contact + p.power + p.speed + p.defense;
 }
 
-/** 投手の総合力（主要4能力の合計） */
+/** 投手の総合力（主要4能力の合計: 球威 + 変化 + 制球 + スタミナ） */
 export function pitcherOverall(p: Player): number {
-  return p.velocity + p.breaking + p.control + p.stamina;
+  return getPitcherStuff(p) + p.breaking + p.control + p.stamina;
 }
 
-/** リリーフ投手の能力評価（スタミナ以外の3能力合計）。勝ちパ・中継ぎの序列決定に使用 */
+/** リリーフ投手の能力評価（スタミナ以外の3能力合計: 球威 + 変化 + 制球）。勝ちパ・中継ぎの序列決定に使用 */
 function reliefScore(p: Player): number {
-  return p.velocity + p.breaking + p.control;
+  return getPitcherStuff(p) + p.breaking + p.control;
 }
 
 // ============================================================
@@ -407,8 +408,8 @@ function buildBattingOrder(
 function buildPitcherStaff(pitchers: Player[]): PitcherAssignment[] {
   // 先発候補: スタミナ重視スコアで上位6名
   const byStarterScore = [...pitchers].sort(
-    (a, b) => (b.stamina * 2 + b.velocity + b.breaking + b.control)
-            - (a.stamina * 2 + a.velocity + a.breaking + a.control),
+    (a, b) => (b.stamina * 2 + getPitcherStuff(b) + b.breaking + b.control)
+            - (a.stamina * 2 + getPitcherStuff(a) + a.breaking + a.control),
   );
   const starters = byStarterScore.slice(0, 6);
   const starterIds = new Set(starters.map((p) => p.id));

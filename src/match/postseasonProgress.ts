@@ -89,6 +89,15 @@ export function advancePostseason(game: GameState): PostAdvanceOutput {
     }
   };
 
+  // 現ステージの全シリーズが既に完了しているなら、次ステージへ遷移
+  const currentSeries = activeSeries(ps);
+  if (currentSeries.length > 0 && currentSeries.every((s) => s.done)) {
+    advanceStage(ps);
+    if (ps.stage === 'DONE') {
+      return { postseason: ps, myResults, recentGames, postseasonStats, postRotationIdx };
+    }
+  }
+
   // 現ステージのアクティブ（未完了）シリーズ
   const active = activeSeries(ps).filter((s) => !s.done);
   const involvesMy = (s: SeriesState) => !!myId && (s.homeId === myId || s.awayId === myId);
@@ -117,11 +126,10 @@ export function advancePostseason(game: GameState): PostAdvanceOutput {
     // 他のアクティブは即消化
     for (const s of active) if (s !== mySeries && !s.done) finishSeries(s, sideWithStarter);
   } else {
-    // マイ不在: 全アクティブ即消化
+    // マイ不在: 全アクティブ即消化（ステージは遷移させず、このステージの結果を表示して止める）
     for (const s of active) finishSeries(s, sideWithStarter);
   }
 
-  advanceStage(ps);
   return { postseason: ps, myResults, recentGames, postseasonStats, postRotationIdx };
 }
 

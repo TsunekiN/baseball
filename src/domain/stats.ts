@@ -1,4 +1,4 @@
-import type { Player } from './types';
+import { getPitcherStuff, type Player } from './types';
 import type { SeasonStatLine } from './gameState';
 import type { SeasonBatting, SeasonPitching } from '../match/matchStats';
 import {
@@ -78,8 +78,8 @@ function clamp(v: number, min: number, max: number): number {
 
 /** 投手能力を0-100スケールの総合質に換算 */
 function pitcherQuality(p: Player): number {
-  const velo = clamp((p.velocity - 125) * 2.5, 0, 110);
-  return (velo + p.control + p.breaking) / 3;
+  const stuff = getPitcherStuff(p);
+  return (stuff + p.control + p.breaking) / 3;
 }
 
 /** 野手のダミー成績を生成 */
@@ -306,6 +306,28 @@ export interface HallOfFamer {
   titles: TitleCounts;
   /** 年度別成績（能力推移・年度別表示用。新しい年が先頭） */
   seasons?: SeasonStatLine[];
+}
+
+/**
+ * 殿堂入り資格を満たすか判定
+ * - 打者: 1600本安打以上 or 300本塁打以上
+ * - 投手: 150勝以上 or (セーブ+ホールドの合計) >= 200
+ */
+export function meetsHofCriteria(totals?: {
+  batting?: { hits?: number; hr?: number };
+  pitching?: { wins?: number; saves?: number; holds?: number };
+}): boolean {
+  if (!totals) return false;
+  const b = totals.batting;
+  const p = totals.pitching;
+  if (b && ((b.hits ?? 0) >= 1600 || (b.hr ?? 0) >= 300)) return true;
+  if (p && ((p.wins ?? 0) >= 150 || ((p.saves ?? 0) + (p.holds ?? 0)) >= 200)) return true;
+  return false;
+}
+
+/** 殿堂入り選手オブジェクトが新基準を満たしているか（過去の殿堂入りデータの整理・検証用） */
+export function isHallOfFamerQualified(hof: HallOfFamer): boolean {
+  return meetsHofCriteria(hof.career);
 }
 
 

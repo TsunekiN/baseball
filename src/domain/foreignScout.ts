@@ -4,8 +4,8 @@
 // 外国人は努力値の代わりに適応値(adaptability)を持ち、成長が日本人と異なる。
 // ============================================================
 
-import type { Player, Position } from './types';
-import { generatePlayer } from './playerFactory';
+import { calcVelocity, type Player, type Position } from './types';
+import { generatePlayer, generateTalent } from './playerFactory';
 import { randInt } from './random';
 
 /** 外国人の初期能力レンジ（20〜80、最低1項目が70以上） */
@@ -28,10 +28,10 @@ function generateForeignCoreStats(): [number, number, number, number] {
 
 /**
  * 指定ポジションの外国人選手を1名生成する。
- * 主要4能力は20〜80（最低1項目は70以上）。年齢20〜32、健康・才能・適応は1〜99。
+ * 主要4能力は20〜80（最低1項目は70以上）。年齢20〜29、健康・才能・適応は1〜99。
  */
 function generateForeignPlayer(position: Position, nextYear: number): Player {
-  const age = randInt(20, 32);
+  const age = randInt(20, 29);
   const p = generatePlayer({
     type: position === 'P' ? 'PITCHER' : 'BATTER',
     position: position === 'P' ? undefined : position,
@@ -41,15 +41,17 @@ function generateForeignPlayer(position: Position, nextYear: number): Player {
     adaptability: randInt(1, 99),
   });
 
-  // 健康は30～99、適応は1～99の完全ランダム（才能は初期実力に応じた適正値）
+  // 健康は30～99、適応は1～99、才能は下限45で高い値ほど出にくい分布
   p.health = randInt(30, 99);
   p.adaptability = randInt(1, 99);
+  p.talent = generateTalent(45, 98);
 
   const [s1, s2, s3, s4] = generateForeignCoreStats();
 
   if (p.type === 'PITCHER') {
-    // 球速: ランク20〜80 を km/h へ（約134〜161km/h）
-    p.velocity = Math.round(125 + s1 * 0.45);
+    // 球威: ランク20〜80、球速は計算式 (球威÷2.5＋124) で算出（約132〜156km/h）
+    p.stuff = s1;
+    p.velocity = calcVelocity(s1);
     p.breaking = s2;
     p.control = s3;
     p.stamina = s4;

@@ -77,8 +77,10 @@ export function PitcherYearTable({ seasons }: { seasons: SeasonStatLine[] }) {
  * 能力推移（4能力・前年差分付き）。
  * seasons は新しい年が先頭。各行に前年（配列上は次の要素）との差分を表示。
  */
+type DisplayAbilityKey = 'contact' | 'power' | 'speed' | 'defense' | 'velocity' | 'breaking' | 'control' | 'stamina';
+
 export function AbilityTrend({ seasons, isPitcher }: { seasons: SeasonStatLine[]; isPitcher: boolean }) {
-  const cols: [string, keyof SeasonStatLine['abilities']][] = isPitcher
+  const cols: [string, DisplayAbilityKey][] = isPitcher
     ? [['球速', 'velocity'], ['制球', 'control'], ['変化', 'breaking'], ['スタミナ', 'stamina']]
     : [['ミート', 'contact'], ['パワー', 'power'], ['走力', 'speed'], ['守備', 'defense']];
 

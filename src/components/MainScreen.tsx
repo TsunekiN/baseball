@@ -64,6 +64,7 @@ interface Props {
   onUpdateOrder: (teamId: string, order: TeamOrder) => void;
   onAdvance: () => void;
   onStartDraft: () => void;
+  onRestartDraft?: () => void;
   onPickDraft: (prospectId: string) => void;
   onLotteryDraw: (cardIndex: number) => void;
   onConfirmLottery: () => void;
@@ -85,6 +86,8 @@ interface Props {
   /** お知らせ通知（開幕・優勝など。チーム総合力の下に表示）。空なら非表示 */
   noticeAlerts: string[];
   onCloseNoticeAlerts: () => void;
+  debugMode?: boolean;
+  onToggleDebugMode?: () => void;
 }
 
 const UNIT_LABELS: { unit: AdvanceUnit; label: string }[] = [
@@ -131,6 +134,7 @@ export function MainScreen({
   onUpdateOrder,
   onAdvance,
   onStartDraft,
+  onRestartDraft,
   onPickDraft,
   onLotteryDraw,
   onConfirmLottery,
@@ -150,6 +154,8 @@ export function MainScreen({
   onCloseInjuryAlerts,
   noticeAlerts,
   onCloseNoticeAlerts,
+  debugMode,
+  onToggleDebugMode,
 }: Props) {
   const s = useMemo(() => calcTeamStrength(myTeam), [myTeam]);
   const [tab, setTab] = useState<NavTab>('standings');
@@ -288,6 +294,7 @@ export function MainScreen({
             canSignForeign={canSignForeign}
             onAdvance={onAdvance}
             onStartDraft={onStartDraft}
+            onRestartDraft={onRestartDraft}
             onPickDraft={onPickDraft}
             onLotteryDraw={onLotteryDraw}
             onConfirmLottery={onConfirmLottery}
@@ -299,6 +306,7 @@ export function MainScreen({
             onFinishForeignScout={onFinishForeignScout}
             onStartNextSeason={onStartNextSeason}
             onHofDecide={onHofDecide}
+            debugMode={debugMode}
           />
         )}
         {tab === 'players' && (
@@ -407,6 +415,23 @@ export function MainScreen({
                 ))}
               </div>
             </div>
+            {onToggleDebugMode && (
+              <div className="setting-row">
+                <span className="setting-label">デバッグモード</span>
+                <button
+                  className="ghost-btn setting-btn"
+                  onClick={onToggleDebugMode}
+                  style={
+                    debugMode
+                      ? { color: '#ff4757', borderColor: '#ff4757', fontWeight: 600 }
+                      : undefined
+                  }
+                  title="ドラフト会議でのやり直しボタンや才能・努力の全開示を切り替えます"
+                >
+                  {debugMode ? '🛠️ ON' : 'OFF'}
+                </button>
+              </div>
+            )}
             <button className="ghost-btn debug-btn" onClick={() => setShowResetConfirm(true)}>
               初期化する
             </button>
