@@ -235,7 +235,7 @@ export function MatchResultView({ result, awayTeam, homeTeam, myTeamId, playerSt
             {[...recentGames].reverse().map((g, i) => (
               <div key={i} className="mr-recent-row">
                 <span className={`mr-recent-mark ${g.myResult}`}>
-                  {g.myResult === 'win' ? '〇' : g.myResult === 'lose' ? '✕' : '△'}
+                  {g.myResult === 'win' ? '○' : g.myResult === 'lose' ? '✕' : '△'}
                 </span>
                 <span className="mr-recent-score">
                   {g.homeMark}{g.homeScore}-{g.awayScore}{g.awayMark}

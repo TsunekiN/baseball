@@ -37,12 +37,12 @@ export interface Player {
   control: number;
   stamina: number;
 
-  // メンタル・体質パラメータ (1-99)
-  talent: number;
-  effort: number;
+  // メンタル・体質パラメータ (才能・努力・適応は上限95、健康・幸運は1-99)
+  talent: number; // 才能値 (上限95)
+  effort: number; // 努力値 (上限95)
   health: number;
   luck: number;
-  /** 適応値(1-99)。外国人のみ使用（effortの代わりに成長/衰えを決める）。日本人は0。 */
+  /** 適応値(1-95)。外国人のみ使用（effortの代わりに成長/衰えを決める）。日本人は0。 */
   adaptability: number;
 
   // 外国人フラグ

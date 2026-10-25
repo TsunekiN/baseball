@@ -50,91 +50,105 @@ export type PitcherArchetype = 'FLAMETHROWER' | 'CONTROL_CRAFT' | 'BREAKING_SPEC
 export function getBatterArchetype(playerId: string, pos?: string): BatterArchetype {
   const h = hash01(`${playerId}#archetype`);
   if (pos === '1B' || pos === 'DH') {
-    if (h < 0.60) return 'SLUGGER';
-    if (h < 0.85) return 'CONTACT';
+    if (h < 0.48) return 'SLUGGER';
+    if (h < 0.72) return 'CONTACT';
+    if (h < 0.82) return 'SPEED_DEFENSE';
+    if (h < 0.90) return 'DEFENSIVE';
     return 'BALANCED';
   }
   if (pos === '3B') {
-    if (h < 0.45) return 'SLUGGER';
-    if (h < 0.75) return 'CONTACT';
+    if (h < 0.40) return 'SLUGGER';
+    if (h < 0.68) return 'CONTACT';
+    if (h < 0.80) return 'SPEED_DEFENSE';
+    if (h < 0.88) return 'DEFENSIVE';
     return 'BALANCED';
   }
   if (pos === 'C') {
-    if (h < 0.40) return 'DEFENSIVE';
-    if (h < 0.65) return 'SLUGGER';
-    if (h < 0.85) return 'CONTACT';
+    if (h < 0.35) return 'DEFENSIVE';
+    if (h < 0.58) return 'SLUGGER';
+    if (h < 0.78) return 'CONTACT';
+    if (h < 0.86) return 'SPEED_DEFENSE';
     return 'BALANCED';
   }
   if (pos === 'SS' || pos === '2B') {
-    if (h < 0.40) return 'SPEED_DEFENSE';
-    if (h < 0.70) return 'CONTACT';
-    if (h < 0.85) return 'DEFENSIVE';
+    if (h < 0.35) return 'SPEED_DEFENSE';
+    if (h < 0.60) return 'CONTACT';
+    if (h < 0.76) return 'DEFENSIVE';
+    if (h < 0.88) return 'SLUGGER'; // 強打の内野手
     return 'BALANCED';
   }
   if (pos === 'OF') {
-    if (h < 0.35) return 'SPEED_DEFENSE';
-    if (h < 0.65) return 'SLUGGER';
-    if (h < 0.85) return 'CONTACT';
+    if (h < 0.32) return 'SPEED_DEFENSE';
+    if (h < 0.58) return 'SLUGGER';
+    if (h < 0.78) return 'CONTACT';
+    if (h < 0.88) return 'DEFENSIVE';
     return 'BALANCED';
   }
-  if (h < 0.30) return 'SLUGGER';
-  if (h < 0.55) return 'CONTACT';
-  if (h < 0.75) return 'SPEED_DEFENSE';
-  if (h < 0.90) return 'DEFENSIVE';
+  if (h < 0.28) return 'SLUGGER';
+  if (h < 0.50) return 'CONTACT';
+  if (h < 0.70) return 'SPEED_DEFENSE';
+  if (h < 0.85) return 'DEFENSIVE';
   return 'BALANCED';
 }
 
 /** 投手アーキタイプ（個性・投球スタイル）を決定論的に判定 */
 export function getPitcherArchetype(playerId: string): PitcherArchetype {
   const h = hash01(`${playerId}#pitcher_archetype`);
-  if (h < 0.25) return 'FLAMETHROWER';
-  if (h < 0.50) return 'CONTROL_CRAFT';
-  if (h < 0.75) return 'BREAKING_SPECIALIST';
-  if (h < 0.90) return 'WORKHORSE';
+  if (h < 0.24) return 'FLAMETHROWER';
+  if (h < 0.48) return 'CONTROL_CRAFT';
+  if (h < 0.70) return 'BREAKING_SPECIALIST';
+  if (h < 0.86) return 'WORKHORSE';
   return 'BALANCED';
 }
 
 /**
- * 選手ごと・能力ごとの「適性係数」（0.45〜1.55）。
- * アーキタイプ（個性）に応じて得意能力に高い適性（上限が高く成長しやすい）、
- * 不得意能力に低い適性（上限が低く成長しにくい）を付与。
- * これにより全4能力が平均化することを完全に防止し、生涯にわたって強い個性を維持する。
+ * 選手ごと・能力ごとの「適性係数」（0.50〜1.65）。
+ * 型（アーキタイプ）の傾向は尊重しつつ、型通りになり過ぎないよう
+ * 選手個別のランダムジッター、サプライズ才能（大化け適性）、万能型適性を備え、
+ * 多種多様でドラマ性のある成長を可能にする。
  */
 export function abilityAffinity(playerId: string, key: string): number {
   const isPitcherKey = ['stuff', 'velocity', 'breaking', 'control', 'stamina'].includes(key);
+
+  // 18%の確率で「万能型成長（全能力が均等に高水準で伸びる）」
+  const isAllRounder = hash01(`${playerId}#all_rounder`) < 0.18;
+  if (isAllRounder) {
+    const balH = hash01(`${playerId}#ar#${key}`);
+    return 1.00 + balH * 0.28; // 1.00〜1.28
+  }
 
   let base = 1.0;
   if (!isPitcherKey) {
     const arch = getBatterArchetype(playerId);
     switch (arch) {
       case 'SLUGGER':
-        if (key === 'power') base = 1.48;
-        else if (key === 'contact') base = 1.02;
-        else if (key === 'defense') base = 0.85;
-        else if (key === 'speed') base = 0.65;
+        if (key === 'power') base = 1.40;
+        else if (key === 'contact') base = 1.04;
+        else if (key === 'defense') base = 0.88;
+        else if (key === 'speed') base = 0.78;
         break;
       case 'CONTACT':
-        if (key === 'contact') base = 1.48;
-        else if (key === 'speed') base = 1.08;
-        else if (key === 'defense') base = 0.84;
-        else if (key === 'power') base = 0.60;
+        if (key === 'contact') base = 1.40;
+        else if (key === 'speed') base = 1.10;
+        else if (key === 'defense') base = 0.90;
+        else if (key === 'power') base = 0.76;
         break;
       case 'SPEED_DEFENSE':
-        if (key === 'speed') base = 1.50;
-        else if (key === 'defense') base = 1.20;
-        else if (key === 'contact') base = 0.80;
-        else if (key === 'power') base = 0.50;
+        if (key === 'speed') base = 1.42;
+        else if (key === 'defense') base = 1.18;
+        else if (key === 'contact') base = 0.88;
+        else if (key === 'power') base = 0.72;
         break;
       case 'DEFENSIVE':
-        if (key === 'defense') base = 1.50;
-        else if (key === 'speed') base = 0.95;
-        else if (key === 'contact') base = 0.85;
-        else if (key === 'power') base = 0.70;
+        if (key === 'defense') base = 1.42;
+        else if (key === 'speed') base = 1.02;
+        else if (key === 'contact') base = 0.90;
+        else if (key === 'power') base = 0.78;
         break;
       case 'BALANCED':
       default: {
         const h = hash01(`${playerId}#bal#${key}`);
-        base = 0.85 + h * 0.30;
+        base = 0.90 + h * 0.28;
         break;
       }
     }
@@ -142,40 +156,80 @@ export function abilityAffinity(playerId: string, key: string): number {
     const arch = getPitcherArchetype(playerId);
     switch (arch) {
       case 'FLAMETHROWER':
-        if (key === 'stuff' || key === 'velocity') base = 1.50;
-        else if (key === 'breaking') base = 1.05;
-        else if (key === 'stamina') base = 0.85;
-        else if (key === 'control') base = 0.60;
+        if (key === 'stuff' || key === 'velocity') base = 1.42;
+        else if (key === 'breaking') base = 1.08;
+        else if (key === 'stamina') base = 0.92;
+        else if (key === 'control') base = 0.76;
         break;
       case 'CONTROL_CRAFT':
-        if (key === 'control') base = 1.50;
-        else if (key === 'breaking') base = 1.15;
-        else if (key === 'stamina') base = 0.80;
-        else if (key === 'stuff' || key === 'velocity') base = 0.55;
+        if (key === 'control') base = 1.42;
+        else if (key === 'breaking') base = 1.16;
+        else if (key === 'stamina') base = 0.88;
+        else if (key === 'stuff' || key === 'velocity') base = 0.74;
         break;
       case 'BREAKING_SPECIALIST':
-        if (key === 'breaking') base = 1.50;
-        else if (key === 'control') base = 1.05;
-        else if (key === 'stuff' || key === 'velocity') base = 0.85;
-        else if (key === 'stamina') base = 0.60;
+        if (key === 'breaking') base = 1.42;
+        else if (key === 'control') base = 1.08;
+        else if (key === 'stuff' || key === 'velocity') base = 0.90;
+        else if (key === 'stamina') base = 0.76;
         break;
       case 'WORKHORSE':
-        if (key === 'stamina') base = 1.50;
-        else if (key === 'control') base = 1.10;
-        else if (key === 'stuff' || key === 'velocity') base = 0.80;
-        else if (key === 'breaking') base = 0.60;
+        if (key === 'stamina') base = 1.42;
+        else if (key === 'control') base = 1.12;
+        else if (key === 'stuff' || key === 'velocity') base = 0.88;
+        else if (key === 'breaking') base = 0.76;
         break;
       case 'BALANCED':
       default: {
         const h = hash01(`${playerId}#pbal#${key}`);
-        base = 0.85 + h * 0.30;
+        base = 0.90 + h * 0.28;
         break;
       }
     }
   }
 
-  const jit = (hash01(`${playerId}#jit#${key}`) - 0.5) * 0.08;
-  return Math.max(0.45, Math.min(1.6, base + jit));
+  // 選手ごとの広いランダムジッター（±0.18）
+  const jit = (hash01(`${playerId}#jit#${key}`) - 0.5) * 0.36;
+
+  // 選手ごとの「隠れた才能・大化けボーナス」（1能力に +0.15〜+0.25）
+  // これにより「剛腕型だけどプロ入り後に制球難を克服」「スラッガーだけど足も伸びる」等のドラマが発生
+  const bonusKeys = isPitcherKey
+    ? ['stuff', 'breaking', 'control', 'stamina']
+    : ['contact', 'power', 'speed', 'defense'];
+  const bonusIndex = Math.floor(hash01(`${playerId}#bonus_idx`) * bonusKeys.length);
+  const isBonusKey = bonusKeys[bonusIndex] === key;
+  const bonus = isBonusKey ? 0.15 + hash01(`${playerId}#bonus_val`) * 0.12 : 0;
+
+  return Math.max(0.50, Math.min(1.65, base + jit + bonus));
+}
+
+/** 才能値・努力値・適応値の上限・下限定義 */
+export const TALENT_MIN = 45;
+export const TALENT_MAX = 95;
+export const EFFORT_MAX = 95;
+export const ADAPTABILITY_MIN = 5;
+export const ADAPTABILITY_MAX = 95;
+
+/** 努力ボーナスの除数: (effort - 50) / 4 */
+export const EFFORT_BONUS_DIVISOR = 4;
+
+/** 到達目標のオフセット値: 才能値 + 努力ボーナス - 10 */
+export const TARGET_ABILITY_OFFSET = 10;
+
+/**
+ * 努力値によるボーナス値。
+ * 努力ボーナス = (effort - 50) / 4
+ */
+export function calcEffortBonus(effort: number): number {
+  return (effort - 50) / EFFORT_BONUS_DIVISOR;
+}
+
+/**
+ * 主要4能力の全体平均に対する到達目標（才能超過ブレーキの基準値）。
+ * 到達目標 = 才能値 + 努力ボーナス - 10
+ */
+export function calcTargetAbility(talent: number, effort: number): number {
+  return talent + calcEffortBonus(effort) - TARGET_ABILITY_OFFSET;
 }
 
 /**
@@ -184,7 +238,7 @@ export function abilityAffinity(playerId: string, key: string): number {
  * 才能に基づくブレーキにより、才能を超えて全能力がインフレすることを強力に防止する。
  */
 export function abilityCap(talent: number, affinity: number, effort = 50): number {
-  const effortBonus = ((effort - 50) / 49) * 3.5;
+  const effortBonus = calcEffortBonus(effort);
   const cap = talent + (affinity - 1.0) * 22 + effortBonus;
   return Math.max(25, Math.min(105, cap));
 }
@@ -194,8 +248,8 @@ export function abilityCap(talent: number, affinity: number, effort = 50): numbe
  * 才能・適性に応じた個別天井ブレーキを適用し、過剰成長を抑制。
  */
 function annualForeignDelta(player: Player, cur: number, affinity: number): number {
-  const adapt = player.adaptability || 50;
-  const factor = (adapt - 50) / 50; // -1.0〜+0.98
+  const adapt = Math.min(ADAPTABILITY_MAX, player.adaptability || 50);
+  const factor = (adapt - 50) / 50; // -1.0〜+0.90
   const base = 4.5; // 年あたりの最大変化幅
 
   // 高齢による衰え
@@ -281,11 +335,11 @@ function growPlayer(p: Player, weeks: number): void {
 
   if (p.age < prof.declineAge) {
     // === 成長期 ===
-    const effortMul = 0.35 + (p.effort / 99) * 0.65;
+    const effortMul = 0.35 + (Math.min(EFFORT_MAX, p.effort) / EFFORT_MAX) * 0.65;
     const curve = growthCurve(p);
 
-    // 全体平均の才能超過ブレーキ
-    const targetAvg = p.talent + ((p.effort - 50) / 49) * 3.5;
+    // 全体平均の才能超過ブレーキ（到達目標 = 才能値 + 努力ボーナス - 10）
+    const targetAvg = calcTargetAbility(p.talent, p.effort);
     const avgRoom = targetAvg - avg;
     const overallBrake = avgRoom <= 0 ? 0 : Math.min(1.0, Math.pow(avgRoom / 12, 1.2));
 
@@ -449,9 +503,203 @@ export interface SpringCampReport {
 }
 
 /**
+ * 春季キャンプ覚醒時の4能力加算ポイント（合計+20〜+22ポイント）を生成。
+ * 得意能力順（第1〜第4）に傾斜をつけて配分する。
+ */
+export function generateAwakeningBoosts(): [number, number, number, number] {
+  const total = randInt(20, 22);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const b0 = randInt(7, 9);
+    const b1 = randInt(5, 7);
+    const b2 = randInt(3, 5);
+    const b3 = total - (b0 + b1 + b2);
+    if (b3 >= 2 && b3 <= 5 && b0 >= b1 && b1 >= b2 && b2 >= b3) {
+      return [b0, b1, b2, b3];
+    }
+  }
+  // フォールバック
+  if (total === 20) return [8, 6, 4, 2];
+  if (total === 21) return [8, 6, 4, 3];
+  return [8, 6, 5, 3];
+}
+
+/**
+ * 投手の春季キャンプ覚醒における変化球・制球・スタミナの加算値（合計14〜16ポイント）を生成。
+ * （球威の上昇値は+6ポイント固定、4能力合計で+20〜+22ポイント）
+ */
+export function generatePitcherSubBoosts(): [number, number, number] {
+  const total = randInt(20, 22);
+  const subTotal = total - 6; // 14〜16
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const b0 = randInt(6, 8);
+    const b1 = randInt(4, 6);
+    const b2 = subTotal - (b0 + b1);
+    if (b2 >= 3 && b2 <= 5 && b0 >= b1 && b1 >= b2) {
+      return [b0, b1, b2];
+    }
+  }
+  // フォールバック
+  if (subTotal === 14) return [6, 5, 3];
+  if (subTotal === 15) return [7, 5, 3];
+  return [7, 5, 4];
+}
+
+/**
+ * 野手1名の春季キャンプ覚醒処理。
+ * 4能力（ミート・パワー・走力・守備力）合計で+20〜+22ポイント加算。
+ */
+export function awakenBatter(batter: Player, team: Team): AwakeningPlayerDetail {
+  const statDeltas: AwakeningStatDelta[] = [];
+  const keys = ['contact', 'power', 'speed', 'defense'] as const;
+  const labels: Record<string, string> = {
+    contact: 'ミート',
+    power: 'パワー',
+    speed: '走力',
+    defense: '守備力',
+  };
+
+  // 得意能力（affinity順）にソート
+  const sortedKeys = [...keys].sort(
+    (a, b) => abilityAffinity(batter.id, b) - abilityAffinity(batter.id, a)
+  );
+
+  // 合計+20〜+22ポイントを第1〜第4得意能力に傾斜配分
+  const batterBoosts = generateAwakeningBoosts();
+  const boostMap: Record<string, number> = {
+    [sortedKeys[0]]: batterBoosts[0],
+    [sortedKeys[1]]: batterBoosts[1],
+    [sortedKeys[2]]: batterBoosts[2],
+    [sortedKeys[3]]: batterBoosts[3],
+  };
+
+  for (const k of keys) {
+    const before = batter[k];
+    const gain = boostMap[k];
+    const after = clampAbility(before + gain, 20, 120);
+    batter[k] = after;
+    statDeltas.push({
+      key: k,
+      label: labels[k],
+      before: Math.round(before),
+      after: Math.round(after),
+      delta: Math.round(after) - Math.round(before),
+    });
+  }
+
+  // 才能値・努力値の底上げ（今後の上限キャップによる停滞を防ぐ）
+  const newAvg = (batter.contact + batter.power + batter.speed + batter.defense) / 4;
+  batter.talent = Math.min(TALENT_MAX, Math.max(batter.talent, Math.round(newAvg + 6)) + randInt(2, 4));
+  batter.effort = Math.min(EFFORT_MAX, batter.effort + randInt(3, 6));
+
+  const summaryParts = statDeltas
+    .filter((d) => d.delta > 0)
+    .map((d) => `${d.label}+${d.delta}`);
+
+  return {
+    playerId: batter.id,
+    playerName: batter.name,
+    teamId: team.id,
+    teamNick: team.nickName,
+    age: batter.age,
+    position: batter.position,
+    type: 'BATTER',
+    growthSummary: summaryParts.join(', '),
+    statDeltas,
+  };
+}
+
+/**
+ * 投手1名の春季キャンプ覚醒処理。
+ * 球威+6固定、変化球・制球・スタミナに14〜16ポイント（4能力合計で+20〜+22ポイント）加算。
+ */
+export function awakenPitcher(pitcher: Player, team: Team): AwakeningPlayerDetail {
+  const statDeltas: AwakeningStatDelta[] = [];
+
+  if (pitcher.stuff == null || isNaN(pitcher.stuff)) {
+    pitcher.stuff = calcStuff(pitcher.velocity);
+  }
+  const veloBefore = pitcher.velocity;
+
+  // 球威は+6ポイント固定で上昇
+  const STUFF_GAIN = 6;
+  const stuffBefore = pitcher.stuff;
+  const stuffAfter = clampAbility(stuffBefore + STUFF_GAIN, 20, 120);
+  pitcher.stuff = stuffAfter;
+
+  // 球威反映後の球速を計算・設定（球威+6により球速は約+2〜+3km/h上昇）
+  const veloAfter = calcVelocity(pitcher.stuff);
+  pitcher.velocity = veloAfter;
+
+  // 変化球・制球・スタミナの3能力（合計14〜16ポイント加算、球威+6と合わせて4能力合計+20〜+22ポイント）
+  const pitchKeys = ['breaking', 'control', 'stamina'] as const;
+  const pitchLabels: Record<string, string> = {
+    breaking: '変化球',
+    control: '制球',
+    stamina: 'スタミナ',
+  };
+
+  const sortedPitchKeys = [...pitchKeys].sort(
+    (a, b) => abilityAffinity(pitcher.id, b) - abilityAffinity(pitcher.id, a)
+  );
+
+  const subBoosts = generatePitcherSubBoosts();
+  const boostPitchMap: Record<string, number> = {
+    [sortedPitchKeys[0]]: subBoosts[0],
+    [sortedPitchKeys[1]]: subBoosts[1],
+    [sortedPitchKeys[2]]: subBoosts[2],
+  };
+
+  // モーダル表示用 statDeltas（球速、変化球、制球、スタミナ）
+  statDeltas.push({
+    key: 'velocity',
+    label: '球速',
+    before: Math.round(veloBefore),
+    after: Math.round(veloAfter),
+    delta: Math.round(veloAfter) - Math.round(veloBefore),
+  });
+
+  for (const k of pitchKeys) {
+    const before = pitcher[k];
+    const gain = boostPitchMap[k];
+    const after = clampAbility(before + gain, 20, 120);
+    pitcher[k] = after;
+    statDeltas.push({
+      key: k,
+      label: pitchLabels[k],
+      before: Math.round(before),
+      after: Math.round(after),
+      delta: Math.round(after) - Math.round(before),
+    });
+  }
+
+  // 才能値・努力値の底上げ（球威を含む主要4能力の平均ベース）
+  const newPitchAvg =
+    (pitcher.stuff + pitcher.breaking + pitcher.control + pitcher.stamina) / 4;
+  pitcher.talent = Math.min(TALENT_MAX, Math.max(pitcher.talent, Math.round(newPitchAvg + 6)) + randInt(2, 4));
+  pitcher.effort = Math.min(EFFORT_MAX, pitcher.effort + randInt(3, 6));
+
+  const summaryParts = statDeltas
+    .filter((d) => d.delta > 0)
+    .map((d) => (d.key === 'velocity' ? `球速+${d.delta}km/h` : `${d.label}+${d.delta}`));
+
+  return {
+    playerId: pitcher.id,
+    playerName: pitcher.name,
+    teamId: team.id,
+    teamNick: team.nickName,
+    age: pitcher.age,
+    position: pitcher.position,
+    type: 'PITCHER',
+    growthSummary: summaryParts.join(', '),
+    statDeltas,
+  };
+}
+
+/**
  * 春季キャンプ覚醒イベント（開幕直前適用）。
  * 自チーム（myTeamId）の25歳以下の若手選手から、野手1名・投手1名をランダムに選出し、
- * アーキタイプ得意能力を中心に大幅な急成長（ブレイクスルー）を付与する。
+ * 4能力（投手の場合、球威を含めた4能力）合計で+20〜+22ポイントの大幅な急成長（ブレイクスルー）を付与する。
+ * （※投手は球威+6ポイント固定、残り14〜16ポイントを変化球・制球・スタミナに配分）
  */
 export function applySpringCamp(
   teams: Team[],
@@ -468,146 +716,16 @@ export function applySpringCamp(
     const youngBatters = team.players.filter((p) => p.age <= 25 && p.type === 'BATTER');
     const youngPitchers = team.players.filter((p) => p.age <= 25 && p.type === 'PITCHER');
 
-    // 野手覚醒（1名）
+    // 野手覚醒（1名）: 4能力合計で+20〜+22ポイント加算
     if (youngBatters.length > 0) {
       const targetBatter = youngBatters[randInt(0, youngBatters.length - 1)];
-      const statDeltas: AwakeningStatDelta[] = [];
-      const keys = ['contact', 'power', 'speed', 'defense'] as const;
-      const labels: Record<string, string> = {
-        contact: 'ミート',
-        power: 'パワー',
-        speed: '走力',
-        defense: '守備力',
-      };
-
-      // 得意能力（affinity順）にソート
-      const sortedKeys = [...keys].sort(
-        (a, b) => abilityAffinity(targetBatter.id, b) - abilityAffinity(targetBatter.id, a)
-      );
-
-      // 第1得意能力に +7〜+9、第2に +5〜+7、他2つに +3〜+5
-      const boostMap: Record<string, number> = {
-        [sortedKeys[0]]: randInt(7, 9),
-        [sortedKeys[1]]: randInt(5, 7),
-        [sortedKeys[2]]: randInt(3, 5),
-        [sortedKeys[3]]: randInt(3, 5),
-      };
-
-      for (const k of keys) {
-        const before = targetBatter[k];
-        const gain = boostMap[k];
-        const after = clampAbility(before + gain, 20, 120);
-        targetBatter[k] = after;
-        statDeltas.push({
-          key: k,
-          label: labels[k],
-          before: Math.round(before),
-          after: Math.round(after),
-          delta: Math.round(after) - Math.round(before),
-        });
-      }
-
-      // 才能値・努力値の底上げ（今後の上限キャップによる停滞を防ぐ）
-      const newAvg = (targetBatter.contact + targetBatter.power + targetBatter.speed + targetBatter.defense) / 4;
-      targetBatter.talent = Math.min(99, Math.max(targetBatter.talent, Math.round(newAvg + 6)) + randInt(2, 4));
-      targetBatter.effort = Math.min(99, targetBatter.effort + randInt(3, 6));
-
-      const summaryParts = statDeltas
-        .filter((d) => d.delta > 0)
-        .map((d) => `${d.label}+${d.delta}`);
-
-      awakenings.push({
-        playerId: targetBatter.id,
-        playerName: targetBatter.name,
-        teamId: team.id,
-        teamNick: team.nickName,
-        age: targetBatter.age,
-        position: targetBatter.position,
-        type: 'BATTER',
-        growthSummary: summaryParts.join(', '),
-        statDeltas,
-      });
+      awakenings.push(awakenBatter(targetBatter, team));
     }
 
-    // 投手覚醒（1名）
+    // 投手覚醒（1名）: 球威+6固定、4能力合計で+20〜+22ポイント加算
     if (youngPitchers.length > 0) {
       const targetPitcher = youngPitchers[randInt(0, youngPitchers.length - 1)];
-      const statDeltas: AwakeningStatDelta[] = [];
-
-      // 投手覚醒（1名）
-      if (targetPitcher.stuff == null || isNaN(targetPitcher.stuff)) {
-        targetPitcher.stuff = calcStuff(targetPitcher.velocity);
-      }
-      const veloBefore = targetPitcher.velocity;
-      const veloGain = randInt(2, 4);
-      // 球速+2〜4km/h に対応する球威加算（球威 ＝ (球速 - 124) * 2.5 なので deltaは veloGain * 2.5）
-      const stuffGain = veloGain * 2.5;
-      const stuffAfter = clampAbility(targetPitcher.stuff + stuffGain, 20, 120);
-      targetPitcher.stuff = stuffAfter;
-      const veloAfter = calcVelocity(stuffAfter);
-      targetPitcher.velocity = veloAfter;
-
-      statDeltas.push({
-        key: 'velocity',
-        label: '球速',
-        before: Math.round(veloBefore),
-        after: Math.round(veloAfter),
-        delta: Math.round(veloAfter) - Math.round(veloBefore),
-      });
-
-      // 変化球・制球・スタミナ
-      const pitchKeys = ['breaking', 'control', 'stamina'] as const;
-      const pitchLabels: Record<string, string> = {
-        breaking: '変化球',
-        control: '制球',
-        stamina: 'スタミナ',
-      };
-
-      const sortedPitchKeys = [...pitchKeys].sort(
-        (a, b) => abilityAffinity(targetPitcher.id, b) - abilityAffinity(targetPitcher.id, a)
-      );
-
-      const boostPitchMap: Record<string, number> = {
-        [sortedPitchKeys[0]]: randInt(7, 9),
-        [sortedPitchKeys[1]]: randInt(5, 7),
-        [sortedPitchKeys[2]]: randInt(3, 5),
-      };
-
-      for (const k of pitchKeys) {
-        const before = targetPitcher[k];
-        const gain = boostPitchMap[k];
-        const after = clampAbility(before + gain, 20, 120);
-        targetPitcher[k] = after;
-        statDeltas.push({
-          key: k,
-          label: pitchLabels[k],
-          before: Math.round(before),
-          after: Math.round(after),
-          delta: Math.round(after) - Math.round(before),
-        });
-      }
-
-      // 才能値・努力値の底上げ（球威を含む主要4能力の平均ベース）
-      const newPitchAvg =
-        (targetPitcher.stuff + targetPitcher.breaking + targetPitcher.control + targetPitcher.stamina) / 4;
-      targetPitcher.talent = Math.min(99, Math.max(targetPitcher.talent, Math.round(newPitchAvg + 6)) + randInt(2, 4));
-      targetPitcher.effort = Math.min(99, targetPitcher.effort + randInt(3, 6));
-
-      const summaryParts = statDeltas
-        .filter((d) => d.delta > 0)
-        .map((d) => (d.key === 'velocity' ? `球速+${d.delta}km/h` : `${d.label}+${d.delta}`));
-
-      awakenings.push({
-        playerId: targetPitcher.id,
-        playerName: targetPitcher.name,
-        teamId: team.id,
-        teamNick: team.nickName,
-        age: targetPitcher.age,
-        position: targetPitcher.position,
-        type: 'PITCHER',
-        growthSummary: summaryParts.join(', '),
-        statDeltas,
-      });
+      awakenings.push(awakenPitcher(targetPitcher, team));
     }
   }
 

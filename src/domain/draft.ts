@@ -7,6 +7,7 @@
 import { getPitcherStuff, type Player, type Position, type Team } from './types';
 import { generatePlayer, generateTalent } from './playerFactory';
 import { randInt } from './random';
+import { TALENT_MIN, TALENT_MAX, EFFORT_MAX } from './growthEngine';
 
 /** ポジション別の候補人数 */
 const POOL_COUNTS: { position: Position; count: number }[] = [
@@ -60,9 +61,9 @@ export function generateDraftProspects(nextYear: number): Player[] {
         baseMean: calculatedMean,
       });
 
-      // 才能値・努力値は 25〜99 の完全ランダム（一様分布）
-      p.talent = generateTalent(45, 98);
-      p.effort = randInt(35, 95);
+      // 才能値（45〜95のべき乗分布）・努力値（35〜95）
+      p.talent = generateTalent(TALENT_MIN, TALENT_MAX);
+      p.effort = randInt(35, EFFORT_MAX);
 
       pool.push(p);
     }

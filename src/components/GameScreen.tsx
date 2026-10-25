@@ -223,10 +223,10 @@ function ResultLine({
   const oppScore = myIsHome ? result.awayScore : result.homeScore;
   const oppId = myIsHome ? result.awayTeamId : result.homeTeamId;
   const opp = teamMap.get(oppId)!;
-  const wl = result.draw ? '分' : myScore > oppScore ? '○' : '●';
+  const wl = result.draw ? '△' : myScore > oppScore ? '○' : '✕';
   return (
     <div className="recent-row">
-      <span className={`recent-wl ${wl === '○' ? 'win' : wl === '●' ? 'lose' : ''}`}>{wl}</span>
+      <span className={`recent-wl ${wl === '○' ? 'win' : wl === '✕' ? 'lose' : 'draw'}`}>{wl}</span>
       <span className="recent-opp">
         {myIsHome ? 'vs' : '@'} {opp.nickName}
       </span>
@@ -350,7 +350,7 @@ function SeriesCard({
         <div className="series-games">
           {series.gameScores.map((g, i) => (
             <span key={i} className="series-game-pill">
-              {i + 1}戦 {g.homeScore}-{g.awayScore}{g.draw ? '分' : ''}
+              {i + 1}戦 {g.homeScore}-{g.awayScore}{g.draw ? '△' : ''}
             </span>
           ))}
         </div>

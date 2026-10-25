@@ -310,8 +310,8 @@ export interface HallOfFamer {
 
 /**
  * 殿堂入り資格を満たすか判定
- * - 打者: 1600本安打以上 or 300本塁打以上
- * - 投手: 150勝以上 or (セーブ+ホールドの合計) >= 200
+ * - 野手: 2000本安打以上
+ * - 投手: 200勝以上 or 250セーブ以上
  */
 export function meetsHofCriteria(totals?: {
   batting?: { hits?: number; hr?: number };
@@ -320,8 +320,8 @@ export function meetsHofCriteria(totals?: {
   if (!totals) return false;
   const b = totals.batting;
   const p = totals.pitching;
-  if (b && ((b.hits ?? 0) >= 1600 || (b.hr ?? 0) >= 300)) return true;
-  if (p && ((p.wins ?? 0) >= 150 || ((p.saves ?? 0) + (p.holds ?? 0)) >= 200)) return true;
+  if (b && (b.hits ?? 0) >= 2000) return true;
+  if (p && ((p.wins ?? 0) >= 200 || (p.saves ?? 0) >= 250)) return true;
   return false;
 }
 
