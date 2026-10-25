@@ -75,7 +75,7 @@ for (const talent of [60, 95]) {
 }
 
 console.log('\n=== 才能・努力の影響 (22歳 NORMAL 能力70 contact 1年) ===');
-for (const [tal, eff] of [[30, 30], [60, 60], [99, 99], [30, 99], [99, 30]] as const) {
+for (const [tal, eff] of [[30, 30], [60, 60], [95, 95], [30, 95], [95, 30]] as const) {
   let sum = 0;
   for (let i = 0; i < REPEAT; i++) {
     const p = makeBatter(22, 'NORMAL', 70, tal, eff);
@@ -108,7 +108,7 @@ for (const idn of [1, 2, 3, 4, 5]) {
 console.log('\n=== 才能→能力上限(abilityCap) affinity 1.0基準 ===');
 { // 動的import回避のためrequire的に
   const { abilityCap } = await import('../src/domain/growthEngine');
-  for (const tal of [30, 50, 70, 85, 99]) {
+  for (const tal of [30, 50, 70, 85, 95]) {
     console.log(`才能${tal}: 上限≈${abilityCap(tal, 1.0).toFixed(0)} (得意1.5:${abilityCap(tal, 1.5).toFixed(0)} / 不得意0.5:${abilityCap(tal, 0.5).toFixed(0)})`);
   }
 }

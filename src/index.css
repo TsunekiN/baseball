@@ -2701,11 +2701,15 @@ select:disabled {
 }
 
 .recent-wl.win {
-  color: #2e9e5b;
+  color: #e23b3b;
 }
 
 .recent-wl.lose {
-  color: #e23b3b;
+  color: #8a8f99;
+}
+
+.recent-wl.draw {
+  color: #2e9e5b;
 }
 
 .recent-score {

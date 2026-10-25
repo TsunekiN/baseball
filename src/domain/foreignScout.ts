@@ -7,6 +7,7 @@
 import { calcVelocity, type Player, type Position } from './types';
 import { generatePlayer, generateTalent } from './playerFactory';
 import { randInt } from './random';
+import { ADAPTABILITY_MIN, ADAPTABILITY_MAX, TALENT_MIN, TALENT_MAX } from './growthEngine';
 
 /** 外国人の初期能力レンジ（20〜80、最低1項目が70以上） */
 const FOREIGN_MIN = 20;
@@ -28,7 +29,7 @@ function generateForeignCoreStats(): [number, number, number, number] {
 
 /**
  * 指定ポジションの外国人選手を1名生成する。
- * 主要4能力は20〜80（最低1項目は70以上）。年齢20〜29、健康・才能・適応は1〜99。
+ * 主要4能力は20〜80（最低1項目は70以上）。年齢20〜29、健康30〜99、才能・適応は上限95。
  */
 function generateForeignPlayer(position: Position, nextYear: number): Player {
   const age = randInt(20, 29);
@@ -38,13 +39,13 @@ function generateForeignPlayer(position: Position, nextYear: number): Player {
     isForeign: true,
     age,
     debutYear: nextYear,
-    adaptability: randInt(1, 99),
+    adaptability: randInt(ADAPTABILITY_MIN, ADAPTABILITY_MAX),
   });
 
-  // 健康は30～99、適応は1～99、才能は下限45で高い値ほど出にくい分布
+  // 健康は30～99、適応は5～95、才能は下限45〜上限95で高い値ほど出にくい分布
   p.health = randInt(30, 99);
-  p.adaptability = randInt(1, 99);
-  p.talent = generateTalent(45, 98);
+  p.adaptability = randInt(ADAPTABILITY_MIN, ADAPTABILITY_MAX);
+  p.talent = generateTalent(TALENT_MIN, TALENT_MAX);
 
   const [s1, s2, s3, s4] = generateForeignCoreStats();
 
